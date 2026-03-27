@@ -66,6 +66,37 @@ class GalapixPyCoreTests(unittest.TestCase):
             finally:
                 database.close()
 
+    def test_view_uncached_files_are_stored_before_layout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            first = make_test_jpeg(base, width=320, height=120)
+            second = base / "sample-2.jpg"
+            pyvips.Image.black(160, 300).bandjoin([32, 96]).jpegsave(str(second), Q=90)
+
+            options = ViewerOptions(database=base / "db")
+            app = GalapixApp(options)
+
+            class StopViewer(Exception):
+                pass
+
+            captured = {}
+
+            def fake_run(self) -> None:
+                captured["workspace"] = self.viewer.workspace
+                raise StopViewer()
+
+            with patch("galapix_py.sdl_viewer.SDLViewer.run", new=fake_run):
+                with self.assertRaises(StopViewer):
+                    app.view([str(first), str(second)])
+
+            workspace = captured["workspace"]
+            self.assertEqual(len(workspace.images), 2)
+            self.assertIsNotNone(workspace.images[0].provider)
+            self.assertIsNotNone(workspace.images[1].provider)
+            self.assertEqual(workspace.images[0].size(), (320, 120))
+            self.assertEqual(workspace.images[1].size(), (160, 300))
+            self.assertLess(workspace.images[0].placement.x, workspace.images[1].placement.x)
+
     def test_workspace_save_load_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
@@ -89,6 +120,21 @@ class GalapixPyCoreTests(unittest.TestCase):
             self.assertAlmostEqual(loaded.images[0].placement.x, 10.0)
             self.assertAlmostEqual(loaded.images[1].placement.scale, 0.75)
 
+    def test_workspace_layout_row_keeps_images_left_to_right(self) -> None:
+        workspace = Workspace()
+        first = Image("/tmp/a.jpg")
+        first.set_absolute(0.0, 0.0, 1.0)
+        second = Image("/tmp/b.jpg")
+        second.set_absolute(0.0, 0.0, 1.0)
+        workspace.add_image(first)
+        workspace.add_image(second)
+
+        workspace.layout_row()
+        workspace.update(1.0)
+
+        self.assertLess(workspace.images[0].placement.x, workspace.images[1].placement.x)
+        self.assertAlmostEqual(workspace.images[0].placement.y, workspace.images[1].placement.y)
+
     def test_app_selfcheck(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
@@ -96,6 +142,19 @@ class GalapixPyCoreTests(unittest.TestCase):
             options = ViewerOptions(database=base / "unused-db")
             app = GalapixApp(options)
             app.selfcheck([str(image_path)])
+
+    def test_expand_paths_preserves_cli_order(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            first = make_test_jpeg(base, width=96, height=64)
+            second = base / "sample-2.jpg"
+            pyvips.Image.black(64, 64).bandjoin([32, 96]).jpegsave(str(second), Q=90)
+
+            options = ViewerOptions(database=base / "unused-db")
+            app = GalapixApp(options)
+            expanded = app.expand_paths([str(second), str(first)])
+
+            self.assertEqual(expanded, [str(second.resolve()), str(first.resolve())])
 
     def test_live_render_validation_waits_for_textured_tiles(self) -> None:
         validation = LiveRenderValidation(timeout=1.0)

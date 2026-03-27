@@ -15,15 +15,22 @@ class GalapixApp:
 
     def expand_paths(self, paths: Iterable[str]) -> list[str]:
         results: list[str] = []
+        seen: set[str] = set()
         for raw in paths:
             path = Path(raw).expanduser()
             if path.is_dir():
                 for child in sorted(path.rglob("*")):
                     if child.is_file() and child.suffix.lower() in {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp"}:
-                        results.append(str(child.resolve()))
+                        resolved = str(child.resolve())
+                        if resolved not in seen:
+                            seen.add(resolved)
+                            results.append(resolved)
             elif path.exists():
-                results.append(str(path.resolve()))
-        return sorted(dict.fromkeys(results))
+                resolved = str(path.resolve())
+                if resolved not in seen:
+                    seen.add(resolved)
+                    results.append(resolved)
+        return results
 
     def view(self, paths: Iterable[str], patterns: Iterable[str] = ()) -> None:
         from .database_thread import DatabaseThread
@@ -46,6 +53,14 @@ class GalapixApp:
         def build_memory_provider(url: str) -> InMemoryTileProvider:
             return InMemoryTileProvider(jobs, probe_file_entry(url))
 
+        def resolve_database_entry(path: str):
+            entry = database.get_file_entry(path)
+            if entry is not None and database.file_exists_and_matches(entry):
+                return entry
+            if entry is not None and entry.file_id is not None:
+                database.delete_file_entry(entry.file_id)
+            return database.store_file_entry(probe_file_entry(path))
+
         if not self.options.memory_only:
             database = Database(self.options.database)
             db_thread = DatabaseThread(database, jobs)
@@ -57,9 +72,11 @@ class GalapixApp:
                         image.set_provider(DatabaseTileProvider(db_thread, entry))
                         workspace.add_image(image)
 
+        loaded_workspace = False
         for path in self.expand_paths(paths):
             if Path(path).suffix.lower() == ".galapix":
                 workspace.load(path)
+                loaded_workspace = True
                 continue
             image = Image(path)
             if self.options.memory_only:
@@ -67,18 +84,22 @@ class GalapixApp:
                     image.set_provider(build_memory_provider(path))
                     workspace.add_image(image)
                 continue
-            entry = database.get_file_entry(path)
-            if entry is not None and database.file_exists_and_matches(entry):
-                image.set_provider(DatabaseTileProvider(db_thread, entry))
+            entry = resolve_database_entry(path)
+            image.set_provider(DatabaseTileProvider(db_thread, entry))
             workspace.add_image(image)
 
         if self.options.memory_only:
             for image in workspace.images:
                 if image.provider is None:
                     image.set_provider(build_memory_provider(image.url))
+        else:
+            for image in workspace.images:
+                if image.provider is None and Path(image.url).suffix.lower() != ".galapix":
+                    image.set_provider(DatabaseTileProvider(db_thread, resolve_database_entry(image.url)))
 
-        workspace.layout_tight(self.options.width, self.options.height)
-        workspace.update(1.0)
+        if not loaded_workspace:
+            workspace.layout_row()
+            workspace.update(1.0)
 
         try:
             if db_thread is not None:

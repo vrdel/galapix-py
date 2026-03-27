@@ -141,6 +141,19 @@ class Workspace:
                     last_x = x
         self.animation_progress = 0.0
 
+    def layout_row(self, spacing: float = 24.0, target_height: float = 1000.0) -> None:
+        x = 0.0
+        for image in self.images:
+            iw, ih = image.size()
+            scale = target_height / max(ih, 1)
+            scaled_w = iw * scale
+            scaled_h = ih * scale
+            center_x = x + (scaled_w / 2.0)
+            center_y = scaled_h / 2.0
+            image.set_target(center_x, center_y, scale)
+            x += scaled_w + spacing
+        self.animation_progress = 0.0
+
     def layout_random(self) -> None:
         span = max(1500, int(math.sqrt(max(len(self.images), 1)) * 1500))
         for image in self.images:
