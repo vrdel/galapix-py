@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Iterable, Iterator, Optional
 
 from .models import FileEntry, TileRecord
 
@@ -38,6 +39,8 @@ CREATE INDEX IF NOT EXISTS idx_tiles_file_scale ON tiles(file_id, scale);
 
 
 class Database:
+    TILE_STORE_BATCH_SIZE = 256
+
     def __init__(self, root: Path) -> None:
         self.root = root
         self.root.mkdir(parents=True, exist_ok=True)
@@ -68,7 +71,18 @@ class Database:
         ).fetchone()
         return None if row is None else self._row_to_file_entry(row)
 
-    def store_file_entry(self, entry: FileEntry) -> FileEntry:
+    @contextmanager
+    def bulk_writes(self) -> Iterator[None]:
+        self.conn.execute("BEGIN")
+        try:
+            yield
+        except Exception:
+            self.conn.rollback()
+            raise
+        else:
+            self.conn.commit()
+
+    def store_file_entry(self, entry: FileEntry, commit: bool = True) -> FileEntry:
         self.conn.execute(
             """
             INSERT INTO files(url, mtime_ns, size_bytes, width, height, image_format)
@@ -82,32 +96,29 @@ class Database:
             """,
             (entry.url, entry.mtime_ns, entry.size_bytes, entry.width, entry.height, entry.image_format),
         )
-        self.conn.commit()
+        if commit:
+            self.conn.commit()
         return self.get_file_entry(entry.url)  # type: ignore[return-value]
 
-    def delete_file_entry(self, file_id: int) -> None:
+    def delete_file_entry(self, file_id: int, commit: bool = True) -> None:
         self.conn.execute("DELETE FROM files WHERE file_id = ?", (file_id,))
-        self.conn.commit()
+        if commit:
+            self.conn.commit()
 
-    def store_tiles(self, file_id: int, tiles: Iterable[TileRecord]) -> None:
-        rows = [
-            (file_id, tile.scale, tile.x, tile.y, tile.width, tile.height, tile.jpeg_bytes)
-            for tile in tiles
-        ]
-        if not rows:
-            return
-        self.conn.executemany(
-            """
-            INSERT INTO tiles(file_id, scale, x, y, width, height, jpeg_bytes)
-            VALUES(?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(file_id, scale, x, y) DO UPDATE SET
-              width = excluded.width,
-              height = excluded.height,
-              jpeg_bytes = excluded.jpeg_bytes
-            """,
-            rows,
-        )
-        self.conn.commit()
+    def store_tiles(self, file_id: int, tiles: Iterable[TileRecord], commit: bool = True) -> None:
+        batch: list[tuple[int, int, int, int, int, int, bytes]] = []
+        wrote_any = False
+        for tile in tiles:
+            batch.append((file_id, tile.scale, tile.x, tile.y, tile.width, tile.height, tile.jpeg_bytes))
+            if len(batch) >= self.TILE_STORE_BATCH_SIZE:
+                self._store_tile_rows(batch)
+                batch.clear()
+                wrote_any = True
+        if batch:
+            self._store_tile_rows(batch)
+            wrote_any = True
+        if commit and wrote_any:
+            self.conn.commit()
 
     def get_tile(self, file_id: int, scale: int, x: int, y: int) -> Optional[TileRecord]:
         row = self.conn.execute(
@@ -146,6 +157,19 @@ class Database:
             width=int(row["width"]),
             height=int(row["height"]),
             image_format=str(row["image_format"]),
+        )
+
+    def _store_tile_rows(self, rows: list[tuple[int, int, int, int, int, int, bytes]]) -> None:
+        self.conn.executemany(
+            """
+            INSERT INTO tiles(file_id, scale, x, y, width, height, jpeg_bytes)
+            VALUES(?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(file_id, scale, x, y) DO UPDATE SET
+              width = excluded.width,
+              height = excluded.height,
+              jpeg_bytes = excluded.jpeg_bytes
+            """,
+            rows,
         )
 
     def _row_to_tile_record(self, row: sqlite3.Row) -> TileRecord:

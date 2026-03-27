@@ -135,14 +135,20 @@ class GalapixApp:
 
         database = Database(self.options.database)
         try:
-            for path in self.expand_paths(paths):
-                entry = database.get_file_entry(path) or database.store_file_entry(probe_file_entry(path))
-                min_scale = 0 if all_tiles else max(0, entry.thumbnail_scale - 3)
-                max_scale = entry.thumbnail_scale
-                tiles = list(generate_tiles_for_entry(entry, min_scale, max_scale))
-                if entry.file_id is None:
-                    entry = database.get_file_entry(entry.url) or database.store_file_entry(entry)
-                database.store_tiles(entry.file_id, tiles)
+            with database.bulk_writes():
+                for path in self.expand_paths(paths):
+                    entry = database.get_file_entry(path)
+                    if entry is None or not database.file_exists_and_matches(entry):
+                        if entry is not None and entry.file_id is not None:
+                            database.delete_file_entry(entry.file_id, commit=False)
+                        entry = database.store_file_entry(probe_file_entry(path), commit=False)
+                    min_scale = 0 if all_tiles else max(0, entry.thumbnail_scale - 3)
+                    max_scale = entry.thumbnail_scale
+                    database.store_tiles(
+                        entry.file_id,
+                        generate_tiles_for_entry(entry, min_scale, max_scale),
+                        commit=False,
+                    )
         finally:
             database.close()
 

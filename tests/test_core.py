@@ -66,6 +66,45 @@ class GalapixPyCoreTests(unittest.TestCase):
             finally:
                 database.close()
 
+    def test_database_store_tiles_accepts_iterables(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            image_path = make_test_jpeg(base)
+            database = Database(base / "db")
+            try:
+                entry = database.store_file_entry(probe_file_entry(image_path))
+
+                def tiles():
+                    for x in range(3):
+                        yield TileRecord(entry.file_id, 0, x, 0, 16, 16, bytes([x + 1]))
+
+                database.store_tiles(entry.file_id, tiles())
+                self.assertEqual(database.get_tile(entry.file_id, 0, 0, 0).jpeg_bytes, b"\x01")
+                self.assertEqual(database.get_tile(entry.file_id, 0, 1, 0).jpeg_bytes, b"\x02")
+                self.assertEqual(database.get_tile(entry.file_id, 0, 2, 0).jpeg_bytes, b"\x03")
+            finally:
+                database.close()
+
+    def test_database_bulk_writes_commit_multiple_operations(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            image_path = make_test_jpeg(base)
+            database = Database(base / "db")
+            try:
+                entry = probe_file_entry(image_path)
+                with database.bulk_writes():
+                    stored = database.store_file_entry(entry, commit=False)
+                    database.store_tiles(
+                        stored.file_id,
+                        [TileRecord(stored.file_id, 0, 0, 0, 16, 16, b"tile")],
+                        commit=False,
+                    )
+                listed = database.list_files()
+                self.assertEqual(len(listed), 1)
+                self.assertEqual(database.get_tile(listed[0].file_id, 0, 0, 0).jpeg_bytes, b"tile")
+            finally:
+                database.close()
+
     def test_view_uncached_files_are_stored_before_layout(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
