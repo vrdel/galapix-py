@@ -141,17 +141,29 @@ class Workspace:
                     last_x = x
         self.animation_progress = 0.0
 
-    def layout_row(self, spacing: float = 24.0, target_height: float = 1000.0) -> None:
+    def layout_row(
+        self,
+        spacing: float = 24.0,
+        target_height: float = 1000.0,
+        max_per_row: int | None = None,
+    ) -> None:
         x = 0.0
-        for image in self.images:
+        y = 0.0
+        row_height = 0.0
+        for index, image in enumerate(self.images):
+            if max_per_row is not None and max_per_row > 0 and index > 0 and index % max_per_row == 0:
+                x = 0.0
+                y += row_height + spacing
+                row_height = 0.0
             iw, ih = image.size()
             scale = target_height / max(ih, 1)
             scaled_w = iw * scale
             scaled_h = ih * scale
             center_x = x + (scaled_w / 2.0)
-            center_y = scaled_h / 2.0
+            center_y = y + (scaled_h / 2.0)
             image.set_target(center_x, center_y, scale)
             x += scaled_w + spacing
+            row_height = max(row_height, scaled_h)
         self.animation_progress = 0.0
 
     def layout_random(self) -> None:

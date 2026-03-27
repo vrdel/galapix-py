@@ -10,9 +10,9 @@ import pyvips
 
 from galapix_py.app import GalapixApp
 from galapix_py.database import Database
-from galapix_py.image import Image
+from galapix_py.image import Image, ImageTileCache
 from galapix_py.jobs import JobManager
-from galapix_py.models import ViewerOptions
+from galapix_py.models import TileRecord, ViewerOptions
 from galapix_py.providers import InMemoryTileProvider
 from galapix_py.sdl_viewer import LiveRenderValidation
 from galapix_py.tiling import generate_tiles_for_entry, probe_file_entry
@@ -135,6 +135,22 @@ class GalapixPyCoreTests(unittest.TestCase):
         self.assertLess(workspace.images[0].placement.x, workspace.images[1].placement.x)
         self.assertAlmostEqual(workspace.images[0].placement.y, workspace.images[1].placement.y)
 
+    def test_workspace_layout_row_wraps_after_max_per_row(self) -> None:
+        workspace = Workspace()
+        for index in range(4):
+            image = Image(f"/tmp/{index}.jpg")
+            image.set_absolute(0.0, 0.0, 1.0)
+            workspace.add_image(image)
+
+        workspace.layout_row(max_per_row=2)
+        workspace.update(1.0)
+
+        self.assertAlmostEqual(workspace.images[0].placement.y, workspace.images[1].placement.y)
+        self.assertAlmostEqual(workspace.images[2].placement.y, workspace.images[3].placement.y)
+        self.assertLess(workspace.images[0].placement.y, workspace.images[2].placement.y)
+        self.assertLess(workspace.images[0].placement.x, workspace.images[1].placement.x)
+        self.assertLess(workspace.images[2].placement.x, workspace.images[3].placement.x)
+
     def test_app_selfcheck(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
@@ -155,6 +171,13 @@ class GalapixPyCoreTests(unittest.TestCase):
             expanded = app.expand_paths([str(second), str(first)])
 
             self.assertEqual(expanded, [str(second.resolve()), str(first.resolve())])
+
+    def test_cli_accepts_images_per_row(self) -> None:
+        from galapix_py.cli import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["--images-per-row", "10", "view"])
+        self.assertEqual(args.images_per_row, 10)
 
     def test_live_render_validation_waits_for_textured_tiles(self) -> None:
         validation = LiveRenderValidation(timeout=1.0)
@@ -199,6 +222,48 @@ class GalapixPyCoreTests(unittest.TestCase):
                 self.assertEqual(delivered[0].y, 0)
             finally:
                 jobs.shutdown()
+
+    def test_in_memory_tile_provider_evicts_old_scaled_images(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            image_path = make_test_jpeg(base, width=1024, height=1024)
+            entry = probe_file_entry(image_path)
+            jobs = JobManager(1)
+            try:
+                provider = InMemoryTileProvider(jobs, entry, max_cached_scales=2)
+                provider._get_scaled_image(0)
+                provider._get_scaled_image(1)
+                provider._get_scaled_image(2)
+                self.assertEqual(list(provider._scaled_images.keys()), [1, 2])
+
+                provider._get_scaled_image(1)
+                provider._get_scaled_image(3)
+                self.assertEqual(list(provider._scaled_images.keys()), [1, 3])
+            finally:
+                jobs.shutdown()
+
+    def test_image_tile_cache_evicts_oldest_tiles(self) -> None:
+        class DummyProvider:
+            def request_tile(self, scale: int, x: int, y: int, callback):
+                raise AssertionError("request_tile should not be called")
+
+            def get_size(self) -> tuple[int, int]:
+                return (256, 256)
+
+            def get_max_scale(self) -> int:
+                return 0
+
+        cache = ImageTileCache(DummyProvider(), max_cached_tiles=2)
+        cache.receive_tile(TileRecord(None, 0, 0, 0, 64, 64, b"a"))
+        cache.receive_tile(TileRecord(None, 0, 1, 0, 64, 64, b"b"))
+        cache.process_queue()
+        self.assertEqual(list(cache.tiles.keys()), [(0, 0, 0), (0, 1, 0)])
+
+        self.assertIsNotNone(cache.get_cached_tile(0, 0, 0))
+        cache.receive_tile(TileRecord(None, 0, 2, 0, 64, 64, b"c"))
+        cache.process_queue()
+
+        self.assertEqual(list(cache.tiles.keys()), [(0, 0, 0), (0, 2, 0)])
 
     def test_configure_texture_upload_state_sets_alignment_and_clamp(self) -> None:
         with (

@@ -12,6 +12,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-t", "--threads", type=int, default=4)
     parser.add_argument("-g", "--geometry", default="1280x720")
     parser.add_argument("-f", "--fullscreen", action="store_true")
+    parser.add_argument("--images-per-row", type=int)
     parser.add_argument("-p", "--pattern", action="append", default=[])
     parser.add_argument("-r", "--title", default="galapix-py")
     parser.add_argument("--memory-only", action="store_true")
@@ -48,6 +49,7 @@ def main() -> None:
         width=width,
         height=height,
         fullscreen=args.fullscreen,
+        images_per_row=args.images_per_row,
         memory_only=args.memory_only,
         validate_render=args.validate_render,
         validation_timeout=args.validation_timeout,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import queue
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -10,19 +11,32 @@ from .models import FileEntry, ImagePlacement, TILE_SIZE, TileRecord
 from .providers import TileProvider
 
 
+def _touch_mapping_key(mapping: dict[tuple[int, int, int], TileRecord], key: tuple[int, int, int]) -> None:
+    value = mapping.pop(key)
+    mapping[key] = value
+
+
+def _pop_oldest_mapping_item(mapping: dict[tuple[int, int, int], TileRecord]) -> None:
+    oldest_key = next(iter(mapping))
+    mapping.pop(oldest_key)
+
+
 @dataclass(slots=True)
 class ImageTileCache:
     provider: TileProvider
     requested: set[tuple[int, int, int]] = field(default_factory=set)
     handles: dict[tuple[int, int, int], JobHandle] = field(default_factory=dict)
-    tiles: dict[tuple[int, int, int], TileRecord] = field(default_factory=dict)
+    tiles: "OrderedDict[tuple[int, int, int], TileRecord]" = field(default_factory=OrderedDict)
     queue: "queue.Queue[TileRecord]" = field(default_factory=queue.Queue)
     focus_scale: int | None = None
+    max_cached_tiles: int = 192
 
     def request_tile(self, scale: int, x: int, y: int) -> TileRecord | None:
         key = (scale, x, y)
-        if key in self.tiles:
-            return self.tiles[key]
+        tile = self.tiles.get(key)
+        if tile is not None:
+            _touch_mapping_key(self.tiles, key)
+            return tile
         if key not in self.requested:
             self.requested.add(key)
             self.handles[key] = self.provider.request_tile(scale, x, y, self.receive_tile)
@@ -53,8 +67,10 @@ class ImageTileCache:
                 break
             key = (tile.scale, tile.x, tile.y)
             self.tiles[key] = tile
+            _touch_mapping_key(self.tiles, key)
             self.requested.discard(key)
             self.handles.pop(key, None)
+            self._prune_tile_capacity()
 
     def clear(self) -> None:
         for handle in self.handles.values():
@@ -86,7 +102,15 @@ class ImageTileCache:
         }
 
     def get_cached_tile(self, scale: int, x: int, y: int) -> TileRecord | None:
-        return self.tiles.get((scale, x, y))
+        key = (scale, x, y)
+        tile = self.tiles.get(key)
+        if tile is not None:
+            _touch_mapping_key(self.tiles, key)
+        return tile
+
+    def _prune_tile_capacity(self) -> None:
+        while len(self.tiles) > self.max_cached_tiles:
+            _pop_oldest_mapping_item(self.tiles)
 
     def find_parent_tile(self, scale: int, x: int, y: int) -> tuple[TileRecord, int] | None:
         max_scale = self.provider.get_max_scale()

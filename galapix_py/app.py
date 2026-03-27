@@ -98,7 +98,7 @@ class GalapixApp:
                     image.set_provider(DatabaseTileProvider(db_thread, resolve_database_entry(image.url)))
 
         if not loaded_workspace:
-            workspace.layout_row()
+            workspace.layout_row(max_per_row=self.options.images_per_row)
             workspace.update(1.0)
 
         try:

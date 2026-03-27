@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from threading import Lock
 from typing import Callable, Protocol
@@ -9,6 +10,16 @@ from .database_thread import DatabaseThread
 from .jobs import JobHandle, JobManager
 from .models import FileEntry, TILE_SIZE, TileRecord
 from .tiling import load_image
+
+
+def _touch_mapping_key(mapping: dict[int, object], key: int) -> None:
+    value = mapping.pop(key)
+    mapping[key] = value
+
+
+def _pop_oldest_mapping_item(mapping: dict[int, object]) -> None:
+    oldest_key = next(iter(mapping))
+    mapping.pop(oldest_key)
 
 
 class TileProvider(Protocol):
@@ -43,7 +54,8 @@ class InMemoryTileProvider:
     entry: FileEntry
     quality: int = 85
     _base_image: object | None = None
-    _scaled_images: dict[int, object] = field(default_factory=dict)
+    max_cached_scales: int = 2
+    _scaled_images: "OrderedDict[int, object]" = field(default_factory=OrderedDict)
     _lock: Lock = field(default_factory=Lock)
 
     def request_tile(self, scale: int, x: int, y: int, callback: Callable[[TileRecord], None]) -> JobHandle:
@@ -72,12 +84,16 @@ class InMemoryTileProvider:
         with self._lock:
             scaled = self._scaled_images.get(scale)
             if scaled is not None:
+                _touch_mapping_key(self._scaled_images, scale)
                 return scaled
             factor = 2 ** scale
             width = max(1, math.ceil(self.entry.width / factor))
             height = max(1, math.ceil(self.entry.height / factor))
             scaled = base.thumbnail_image(width, height=height, size="force")
             self._scaled_images[scale] = scaled
+            _touch_mapping_key(self._scaled_images, scale)
+            while len(self._scaled_images) > self.max_cached_scales:
+                _pop_oldest_mapping_item(self._scaled_images)
             return scaled
 
     def _generate_tile(self, scale: int, x: int, y: int) -> TileRecord | None:
