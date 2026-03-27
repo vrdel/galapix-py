@@ -134,6 +134,10 @@ class GalapixPyCoreTests(unittest.TestCase):
 
         self.assertLess(workspace.images[0].placement.x, workspace.images[1].placement.x)
         self.assertAlmostEqual(workspace.images[0].placement.y, workspace.images[1].placement.y)
+        self.assertAlmostEqual(
+            (workspace.images[0].placement.x + workspace.images[1].placement.x) / 2.0,
+            0.0,
+        )
 
     def test_workspace_layout_row_wraps_after_max_per_row(self) -> None:
         workspace = Workspace()
@@ -150,6 +154,14 @@ class GalapixPyCoreTests(unittest.TestCase):
         self.assertLess(workspace.images[0].placement.y, workspace.images[2].placement.y)
         self.assertLess(workspace.images[0].placement.x, workspace.images[1].placement.x)
         self.assertLess(workspace.images[2].placement.x, workspace.images[3].placement.x)
+        self.assertAlmostEqual(
+            (workspace.images[0].placement.x + workspace.images[1].placement.x) / 2.0,
+            0.0,
+        )
+        self.assertAlmostEqual(
+            (workspace.images[2].placement.x + workspace.images[3].placement.x) / 2.0,
+            0.0,
+        )
 
     def test_app_selfcheck(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

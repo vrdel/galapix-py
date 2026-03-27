@@ -147,24 +147,39 @@ class Workspace:
         target_height: float = 1000.0,
         max_per_row: int | None = None,
     ) -> None:
-        x = 0.0
         y = 0.0
-        row_height = 0.0
+        row_images: list[tuple[Image, float, float]] = []
         for index, image in enumerate(self.images):
             if max_per_row is not None and max_per_row > 0 and index > 0 and index % max_per_row == 0:
-                x = 0.0
-                y += row_height + spacing
-                row_height = 0.0
+                y += self._layout_row_segment(row_images, y, spacing)
+                row_images = []
             iw, ih = image.size()
             scale = target_height / max(ih, 1)
             scaled_w = iw * scale
             scaled_h = ih * scale
+            row_images.append((image, scaled_w, scaled_h))
+        if row_images:
+            self._layout_row_segment(row_images, y, spacing)
+        self.animation_progress = 0.0
+
+    def _layout_row_segment(
+        self,
+        row_images: list[tuple[Image, float, float]],
+        top_y: float,
+        spacing: float,
+    ) -> float:
+        row_width = sum(width for _, width, _ in row_images)
+        if len(row_images) > 1:
+            row_width += spacing * (len(row_images) - 1)
+        x = -(row_width / 2.0)
+        row_height = 0.0
+        for image, scaled_w, scaled_h in row_images:
             center_x = x + (scaled_w / 2.0)
-            center_y = y + (scaled_h / 2.0)
-            image.set_target(center_x, center_y, scale)
+            center_y = top_y + (scaled_h / 2.0)
+            image.set_target(center_x, center_y, scaled_h / max(image.size()[1], 1))
             x += scaled_w + spacing
             row_height = max(row_height, scaled_h)
-        self.animation_progress = 0.0
+        return row_height + spacing
 
     def layout_random(self) -> None:
         span = max(1500, int(math.sqrt(max(len(self.images), 1)) * 1500))
