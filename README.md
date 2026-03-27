@@ -56,6 +56,14 @@ uv venv .uv-venv
 uv pip install --python .uv-venv/bin/python -e .
 ```
 
+To build an installable wheel package:
+
+```bash
+make wheel-devel
+```
+
+The wheel is written to `dist/`.
+
 For a non-GUI smoke test of the core pipeline:
 
 ```bash
