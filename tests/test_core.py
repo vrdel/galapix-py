@@ -134,6 +134,37 @@ class GalapixPyCoreTests(unittest.TestCase):
                 app.thumbgen([str(image_path)], all_tiles=True)
             self.assertTrue(wrapped.called)
 
+    def test_prepare_all_tiles_rebuilds_when_cached_entry_dimensions_are_stale(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            image_path = make_test_jpeg(base, width=320, height=240)
+            options = ViewerOptions(database=base / "db")
+            app = GalapixApp(options)
+
+            app.thumbgen([str(image_path)], all_tiles=True)
+
+            database = Database(base / "db")
+            try:
+                entry = database.get_file_entry(str(image_path))
+                database.store_file_entry(
+                    entry.__class__(
+                        file_id=entry.file_id,
+                        url=entry.url,
+                        mtime_ns=entry.mtime_ns,
+                        size_bytes=entry.size_bytes,
+                        width=entry.width + 1,
+                        height=entry.height,
+                        image_format=entry.image_format,
+                    )
+                )
+            finally:
+                database.close()
+
+            original = generate_tiles_for_entry
+            with patch("galapix_py.tiling.generate_tiles_for_entry", wraps=original) as wrapped:
+                app.thumbgen([str(image_path)], all_tiles=True)
+            self.assertTrue(wrapped.called)
+
     def test_view_uncached_files_are_stored_before_layout(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)

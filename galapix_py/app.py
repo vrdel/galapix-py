@@ -138,11 +138,19 @@ class GalapixApp:
             with database.bulk_writes():
                 for path in self.expand_paths(paths):
                     entry = database.get_file_entry(path)
-                    is_current = entry is not None and database.file_exists_and_matches(entry)
+                    fresh = probe_file_entry(path)
+                    is_current = (
+                        entry is not None
+                        and entry.mtime_ns == fresh.mtime_ns
+                        and entry.size_bytes == fresh.size_bytes
+                        and entry.width == fresh.width
+                        and entry.height == fresh.height
+                        and entry.image_format == fresh.image_format
+                    )
                     if not is_current:
                         if entry is not None and entry.file_id is not None:
                             database.delete_file_entry(entry.file_id, commit=False)
-                        entry = database.store_file_entry(probe_file_entry(path), commit=False)
+                        entry = database.store_file_entry(fresh, commit=False)
                     min_scale = 0 if all_tiles else max(0, entry.thumbnail_scale - 3)
                     max_scale = entry.thumbnail_scale
                     cached_min, cached_max = database.get_min_max_scale(entry.file_id)
