@@ -2,16 +2,58 @@ from __future__ import annotations
 
 import ctypes
 import time
+from dataclasses import dataclass
 
 import sdl2
 
-from .viewer import Viewer
+from .viewer import FrameRenderStats, Viewer
+
+
+@dataclass(slots=True)
+class LiveRenderValidation:
+    timeout: float
+    frames_seen: int = 0
+    last_stats: FrameRenderStats | None = None
+
+    def observe(self, elapsed: float, stats: FrameRenderStats) -> tuple[bool, str | None]:
+        self.frames_seen += 1
+        self.last_stats = stats
+        if stats.textured_tiles > 0:
+            return True, (
+                "live render validation passed: "
+                f"frames={self.frames_seen} visible_images={stats.visible_images} textured_tiles={stats.textured_tiles}"
+            )
+        if elapsed >= self.timeout:
+            return False, (
+                "live render validation timed out: "
+                f"frames={self.frames_seen} visible_images={stats.visible_images} "
+                f"textured_tiles={stats.textured_tiles} placeholder_tiles={stats.placeholder_tiles}"
+            )
+        return False, None
+
+    def timeout_message(self, elapsed: float) -> str | None:
+        if elapsed < self.timeout:
+            return None
+        stats = self.last_stats or FrameRenderStats()
+        return (
+            "live render validation timed out: "
+            f"frames={self.frames_seen} visible_images={stats.visible_images} "
+            f"textured_tiles={stats.textured_tiles} placeholder_tiles={stats.placeholder_tiles}"
+        )
 
 
 class SDLViewer:
-    def __init__(self, viewer: Viewer, fullscreen: bool = False) -> None:
+    def __init__(
+        self,
+        viewer: Viewer,
+        fullscreen: bool = False,
+        validate_render: bool = False,
+        validation_timeout: float = 5.0,
+    ) -> None:
         self.viewer = viewer
         self.fullscreen = fullscreen
+        self.validate_render = validate_render
+        self.validation_timeout = validation_timeout
         self.window = None
         self.context = None
         self.running = False
@@ -43,24 +85,40 @@ class SDLViewer:
         self.running = True
         event = sdl2.SDL_Event()
         last = time.monotonic()
-        while self.running:
-            had_event = False
-            while sdl2.SDL_PollEvent(event):
-                had_event = True
-                self._process_event(event)
-            self._process_keyboard_state()
-            now = time.monotonic()
-            delta = now - last
-            last = now
-            self.viewer.update(delta)
-            if had_event or self.viewer.needs_redraw:
-                self.viewer.draw()
-                self._update_title()
-                sdl2.SDL_GL_SwapWindow(self.window)
-            sdl2.SDL_Delay(10)
-        sdl2.SDL_GL_DeleteContext(self.context)
-        sdl2.SDL_DestroyWindow(self.window)
-        sdl2.SDL_Quit()
+        started = last
+        validator = LiveRenderValidation(self.validation_timeout) if self.validate_render else None
+        try:
+            while self.running:
+                had_event = False
+                while sdl2.SDL_PollEvent(event):
+                    had_event = True
+                    self._process_event(event)
+                self._process_keyboard_state()
+                now = time.monotonic()
+                delta = now - last
+                last = now
+                self.viewer.update(delta)
+                if had_event or self.viewer.needs_redraw:
+                    stats = self.viewer.draw()
+                    self._update_title()
+                    sdl2.SDL_GL_SwapWindow(self.window)
+                    if validator is not None:
+                        success, message = validator.observe(now - started, stats)
+                        if message is not None:
+                            if success:
+                                print(message)
+                                self.running = False
+                            else:
+                                raise RuntimeError(message)
+                if validator is not None:
+                    timeout_message = validator.timeout_message(now - started)
+                    if timeout_message is not None:
+                        raise RuntimeError(timeout_message)
+                sdl2.SDL_Delay(10)
+        finally:
+            sdl2.SDL_GL_DeleteContext(self.context)
+            sdl2.SDL_DestroyWindow(self.window)
+            sdl2.SDL_Quit()
 
     def _process_keyboard_state(self) -> None:
         numkeys = ctypes.c_int()

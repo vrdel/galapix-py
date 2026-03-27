@@ -51,6 +51,9 @@ class ViewerOptions:
     width: int = 1280
     height: int = 720
     fullscreen: bool = False
+    memory_only: bool = False
+    validate_render: bool = False
+    validation_timeout: float = 5.0
 
 
 @dataclass(slots=True)

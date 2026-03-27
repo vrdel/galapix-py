@@ -29,44 +29,74 @@ class GalapixApp:
         from .database_thread import DatabaseThread
         from .image import Image
         from .jobs import JobManager
-        from .providers import DatabaseTileProvider
+        from .providers import DatabaseTileProvider, InMemoryTileProvider
         from .sdl_viewer import SDLViewer
         from .viewer import Viewer
+        from .tiling import probe_file_entry
         from .workspace import Workspace
 
-        database = Database(self.options.database)
         jobs = JobManager(self.options.threads)
-        db_thread = DatabaseThread(database, jobs)
         workspace = Workspace()
+        database = None
+        db_thread = None
 
-        for pattern in patterns:
-            for entry in database.list_files():
-                if fnmatch.fnmatch(entry.url, pattern):
-                    image = Image(entry.url)
-                    image.set_provider(DatabaseTileProvider(db_thread, entry))
-                    workspace.add_image(image)
+        def matches_patterns(path: str) -> bool:
+            return not patterns or any(fnmatch.fnmatch(path, pattern) for pattern in patterns)
+
+        def build_memory_provider(url: str) -> InMemoryTileProvider:
+            return InMemoryTileProvider(jobs, probe_file_entry(url))
+
+        if not self.options.memory_only:
+            database = Database(self.options.database)
+            db_thread = DatabaseThread(database, jobs)
+
+            for pattern in patterns:
+                for entry in database.list_files():
+                    if fnmatch.fnmatch(entry.url, pattern):
+                        image = Image(entry.url)
+                        image.set_provider(DatabaseTileProvider(db_thread, entry))
+                        workspace.add_image(image)
 
         for path in self.expand_paths(paths):
             if Path(path).suffix.lower() == ".galapix":
                 workspace.load(path)
                 continue
-            entry = database.get_file_entry(path)
             image = Image(path)
+            if self.options.memory_only:
+                if matches_patterns(path):
+                    image.set_provider(build_memory_provider(path))
+                    workspace.add_image(image)
+                continue
+            entry = database.get_file_entry(path)
             if entry is not None and database.file_exists_and_matches(entry):
                 image.set_provider(DatabaseTileProvider(db_thread, entry))
             workspace.add_image(image)
 
+        if self.options.memory_only:
+            for image in workspace.images:
+                if image.provider is None:
+                    image.set_provider(build_memory_provider(image.url))
+
         workspace.layout_tight(self.options.width, self.options.height)
         workspace.update(1.0)
 
-        db_thread.start()
         try:
-            viewer = Viewer(self.options, workspace, db_thread)
-            SDLViewer(viewer, fullscreen=self.options.fullscreen).run()
+            if db_thread is not None:
+                db_thread.start()
+            provider_factory = build_memory_provider if self.options.memory_only else None
+            viewer = Viewer(self.options, workspace, db_thread, provider_factory=provider_factory)
+            SDLViewer(
+                viewer,
+                fullscreen=self.options.fullscreen,
+                validate_render=self.options.validate_render,
+                validation_timeout=self.options.validation_timeout,
+            ).run()
         finally:
-            db_thread.stop()
+            if db_thread is not None:
+                db_thread.stop()
             jobs.shutdown()
-            database.close()
+            if database is not None:
+                database.close()
 
     def filegen(self, paths: Iterable[str]) -> None:
         from .tiling import probe_file_entry
