@@ -51,7 +51,7 @@ class ViewerOptions:
     width: int = 1280
     height: int = 720
     fullscreen: bool = False
-    images_per_row: int | None = None
+    images_per_row: int | None = 10
     memory_only: bool = False
     validate_render: bool = False
     validation_timeout: float = 5.0

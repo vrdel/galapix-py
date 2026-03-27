@@ -179,6 +179,13 @@ class GalapixPyCoreTests(unittest.TestCase):
         args = parser.parse_args(["--images-per-row", "10", "view"])
         self.assertEqual(args.images_per_row, 10)
 
+    def test_cli_defaults_images_per_row_to_ten(self) -> None:
+        from galapix_py.cli import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["view"])
+        self.assertEqual(args.images_per_row, 10)
+
     def test_live_render_validation_waits_for_textured_tiles(self) -> None:
         validation = LiveRenderValidation(timeout=1.0)
 
