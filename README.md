@@ -71,6 +71,13 @@ For a non-GUI smoke test of the core pipeline:
   /home/daniel/my_work/git.galapix-ont-vrdel/galapix-ont/test/software_surface_test.jpg
 ```
 
+For a live desktop render validation run that exits automatically after the
+first textured frame:
+
+```bash
+.uv-venv/bin/python -m galapix_py.cli --validate-render view /path/to/image.jpg
+```
+
 ## Viewer Controls
 
 Navigation:

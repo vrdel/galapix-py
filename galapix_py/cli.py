@@ -14,6 +14,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-f", "--fullscreen", action="store_true")
     parser.add_argument("-p", "--pattern", action="append", default=[])
     parser.add_argument("-r", "--title", default="galapix-py")
+    parser.add_argument("--memory-only", action="store_true")
+    parser.add_argument("--validate-render", action="store_true")
+    parser.add_argument("--validation-timeout", type=float, default=5.0)
 
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -45,6 +48,9 @@ def main() -> None:
         width=width,
         height=height,
         fullscreen=args.fullscreen,
+        memory_only=args.memory_only,
+        validate_render=args.validate_render,
+        validation_timeout=args.validation_timeout,
     )
     app = GalapixApp(options)
     if args.command == "view":

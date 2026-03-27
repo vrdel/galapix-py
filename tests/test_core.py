@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -9,8 +10,12 @@ import pyvips
 from galapix_py.app import GalapixApp
 from galapix_py.database import Database
 from galapix_py.image import Image
+from galapix_py.jobs import JobManager
 from galapix_py.models import ViewerOptions
+from galapix_py.providers import InMemoryTileProvider
+from galapix_py.sdl_viewer import LiveRenderValidation
 from galapix_py.tiling import generate_tiles_for_entry, probe_file_entry
+from galapix_py.viewer import FrameRenderStats
 from galapix_py.workspace import Workspace
 
 
@@ -79,6 +84,50 @@ class GalapixPyCoreTests(unittest.TestCase):
             options = ViewerOptions(database=base / "unused-db")
             app = GalapixApp(options)
             app.selfcheck([str(image_path)])
+
+    def test_live_render_validation_waits_for_textured_tiles(self) -> None:
+        validation = LiveRenderValidation(timeout=1.0)
+
+        success, message = validation.observe(0.2, FrameRenderStats(visible_images=1, placeholder_tiles=1))
+        self.assertFalse(success)
+        self.assertIsNone(message)
+
+        success, message = validation.observe(0.4, FrameRenderStats(visible_images=1, textured_tiles=2))
+        self.assertTrue(success)
+        self.assertIn("passed", message)
+
+    def test_live_render_validation_times_out_without_textures(self) -> None:
+        validation = LiveRenderValidation(timeout=0.5)
+
+        success, message = validation.observe(0.5, FrameRenderStats(visible_images=1, placeholder_tiles=3))
+        self.assertFalse(success)
+        self.assertIn("timed out", message)
+
+    def test_in_memory_tile_provider_generates_tile_without_database_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            image_path = make_test_jpeg(base, width=320, height=240)
+            entry = probe_file_entry(image_path)
+            jobs = JobManager(1)
+            try:
+                provider = InMemoryTileProvider(jobs, entry)
+                delivered: list[object] = []
+                delivered_event = threading.Event()
+
+                handle = provider.request_tile(
+                    entry.thumbnail_scale,
+                    0,
+                    0,
+                    lambda tile: (delivered.append(tile), delivered_event.set()),
+                )
+                self.assertIsNotNone(handle.future)
+                handle.future.result(timeout=3)
+                self.assertTrue(delivered_event.wait(timeout=1))
+                self.assertEqual(len(delivered), 1)
+                self.assertEqual(delivered[0].x, 0)
+                self.assertEqual(delivered[0].y, 0)
+            finally:
+                jobs.shutdown()
 
 
 if __name__ == "__main__":

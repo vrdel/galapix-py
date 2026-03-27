@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from typing import Callable
 
 import numpy as np
 import pyvips
@@ -114,11 +115,25 @@ class TextureCache:
                 self.idle_frames.pop(key, None)
 
 
+@dataclass(slots=True)
+class FrameRenderStats:
+    visible_images: int = 0
+    textured_tiles: int = 0
+    placeholder_tiles: int = 0
+
+
 class Viewer:
-    def __init__(self, options: ViewerOptions, workspace: Workspace, db_thread: DatabaseThread) -> None:
+    def __init__(
+        self,
+        options: ViewerOptions,
+        workspace: Workspace,
+        db_thread: DatabaseThread | None,
+        provider_factory: Callable[[str], object] | None = None,
+    ) -> None:
         self.options = options
         self.workspace = workspace
         self.db_thread = db_thread
+        self.provider_factory = provider_factory
         self.state = ViewerState()
         self.texture_cache = TextureCache()
         self.background_colors = [
@@ -146,6 +161,7 @@ class Viewer:
         self.show_status = True
         self.show_grid = False
         self.grid_size = 400.0
+        self.last_frame_stats = FrameRenderStats()
 
     def world_to_screen(self, x: float, y: float) -> tuple[float, float]:
         return (
@@ -198,14 +214,15 @@ class Viewer:
             self.request_redraw()
 
     def update(self, delta: float) -> None:
-        processed = self.db_thread.poll_deliveries()
+        processed = self.db_thread.poll_deliveries() if self.db_thread is not None else 0
         self.workspace.update(delta)
         for image in self.workspace.images:
             image.process_queues()
         if processed or self.workspace.is_animated():
             self.needs_redraw = True
 
-    def draw(self) -> None:
+    def draw(self) -> FrameRenderStats:
+        stats = FrameRenderStats()
         self.texture_cache.begin_frame()
         glClearColor(*self.background_colors[self.background_index])
         glClear(GL_COLOR_BUFFER_BIT)
@@ -219,11 +236,14 @@ class Viewer:
                 if image.visible:
                     image.on_leave_screen()
                 continue
+            stats.visible_images += 1
             if not image.visible:
                 image.on_enter_screen()
-            self._draw_image(image)
+            self._draw_image(image, stats)
         self.texture_cache.end_frame()
         self.needs_redraw = False
+        self.last_frame_stats = stats
+        return stats
 
     def request_redraw(self) -> None:
         self.needs_redraw = True
@@ -364,12 +384,15 @@ class Viewer:
         self.workspace.select_at(world_x, world_y)
         self.request_redraw()
 
-    def _draw_image(self, image: Image) -> None:
+    def _draw_image(self, image: Image, stats: FrameRenderStats) -> None:
         img_left, img_top, img_right, img_bottom = image.rect()
+        if image.provider is None and self.provider_factory is not None:
+            image.set_provider(self.provider_factory(image.url))
         if image.provider is None:
             left, top = self.world_to_screen(img_left, img_top)
             right, bottom = self.world_to_screen(img_right, img_bottom)
             self._draw_solid_rect(left, top, right, bottom, (0.55, 0.45, 0.10))
+            stats.placeholder_tiles += 1
             if image.selected:
                 self._draw_outline(left, top, right, bottom, (1.0, 1.0, 1.0))
             if not image.file_entry_requested:
@@ -381,6 +404,8 @@ class Viewer:
                 def on_tile(entry, tile, image=image) -> None:
                     image.receive_tile(tile)
 
+                if self.db_thread is None:
+                    raise RuntimeError(f"image provider unavailable for {image.url}")
                 self.db_thread.request_file(image.url, on_file, on_tile)
             return
 
@@ -423,6 +448,7 @@ class Viewer:
                         tile_top_world + tile.height * factor * image.placement.scale,
                     )
                     self._draw_textured_rect(texture, left, top, exact_right, exact_bottom)
+                    stats.textured_tiles += 1
                     continue
 
                 image.cache.request_parent_tiles(scale, tx, ty)
@@ -454,6 +480,7 @@ class Viewer:
                                 child_top_world + child_tile.height * child_factor * image.placement.scale,
                             )
                             self._draw_textured_rect(child_texture, child_left, child_top, child_right, child_bottom)
+                            stats.textured_tiles += 1
                     if drew_child:
                         continue
 
@@ -472,9 +499,11 @@ class Viewer:
                     u1 = u0 + 1.0 / downscale
                     v1 = v0 + 1.0 / downscale
                     self._draw_textured_rect(parent_texture, left, top, right, bottom, u0, v0, u1, v1)
+                    stats.textured_tiles += 1
                     continue
 
                 self._draw_solid_rect(left, top, right, bottom, (0.30, 0.10, 0.30))
+                stats.placeholder_tiles += 1
 
         if image.selected:
             left, top = self.world_to_screen(img_left, img_top)
