@@ -7,6 +7,7 @@ from typing import Callable
 import numpy as np
 import pyvips
 from OpenGL.GL import (
+    GL_CLAMP_TO_EDGE,
     GL_COLOR_BUFFER_BIT,
     GL_LINEAR,
     GL_LINE_LOOP,
@@ -20,7 +21,10 @@ from OpenGL.GL import (
     GL_TEXTURE_2D,
     GL_TEXTURE_MAG_FILTER,
     GL_TEXTURE_MIN_FILTER,
+    GL_TEXTURE_WRAP_S,
+    GL_TEXTURE_WRAP_T,
     GL_UNSIGNED_BYTE,
+    GL_UNPACK_ALIGNMENT,
     glBegin,
     glBindTexture,
     glClear,
@@ -39,6 +43,7 @@ from OpenGL.GL import (
     glTexParameteri,
     glVertex2f,
     glViewport,
+    glPixelStorei,
 )
 
 from .database_thread import DatabaseThread
@@ -49,6 +54,14 @@ from .viewer_state import ViewerState
 from .workspace import Workspace
 
 WORKSPACE_DUMP_PATH = "/tmp/workspace-dump.galapix"
+
+
+def configure_texture_upload_state() -> None:
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
 
 
 @dataclass(slots=True)
@@ -70,8 +83,7 @@ class TextureCache:
             return texture
         texture = int(glGenTextures(1))
         glBindTexture(GL_TEXTURE_2D, texture)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+        configure_texture_upload_state()
         vips_image = pyvips.Image.new_from_buffer(jpeg_bytes, "")
         memory = np.frombuffer(vips_image.write_to_memory(), dtype=np.uint8)
         channels = vips_image.bands

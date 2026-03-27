@@ -4,6 +4,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest.mock import call, patch
 
 import pyvips
 
@@ -15,7 +16,18 @@ from galapix_py.models import ViewerOptions
 from galapix_py.providers import InMemoryTileProvider
 from galapix_py.sdl_viewer import LiveRenderValidation
 from galapix_py.tiling import generate_tiles_for_entry, probe_file_entry
-from galapix_py.viewer import FrameRenderStats
+from galapix_py.viewer import (
+    FrameRenderStats,
+    GL_CLAMP_TO_EDGE,
+    GL_LINEAR,
+    GL_TEXTURE_2D,
+    GL_TEXTURE_MAG_FILTER,
+    GL_TEXTURE_MIN_FILTER,
+    GL_TEXTURE_WRAP_S,
+    GL_TEXTURE_WRAP_T,
+    GL_UNPACK_ALIGNMENT,
+    configure_texture_upload_state,
+)
 from galapix_py.workspace import Workspace
 
 
@@ -128,6 +140,24 @@ class GalapixPyCoreTests(unittest.TestCase):
                 self.assertEqual(delivered[0].y, 0)
             finally:
                 jobs.shutdown()
+
+    def test_configure_texture_upload_state_sets_alignment_and_clamp(self) -> None:
+        with (
+            patch("galapix_py.viewer.glPixelStorei") as pixel_store,
+            patch("galapix_py.viewer.glTexParameteri") as tex_parameter,
+        ):
+            configure_texture_upload_state()
+
+        pixel_store.assert_called_once_with(GL_UNPACK_ALIGNMENT, 1)
+        tex_parameter.assert_has_calls(
+            [
+                call(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR),
+                call(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR),
+                call(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE),
+                call(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE),
+            ]
+        )
+        self.assertEqual(len(tex_parameter.call_args_list), 4)
 
 
 if __name__ == "__main__":
