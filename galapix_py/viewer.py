@@ -1,0 +1,482 @@
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass, field
+
+import numpy as np
+import pyvips
+from OpenGL.GL import (
+    GL_COLOR_BUFFER_BIT,
+    GL_LINEAR,
+    GL_LINE_LOOP,
+    GL_LINES,
+    GL_LUMINANCE,
+    GL_MODELVIEW,
+    GL_PROJECTION,
+    GL_QUADS,
+    GL_RGB,
+    GL_RGBA,
+    GL_TEXTURE_2D,
+    GL_TEXTURE_MAG_FILTER,
+    GL_TEXTURE_MIN_FILTER,
+    GL_UNSIGNED_BYTE,
+    glBegin,
+    glBindTexture,
+    glClear,
+    glClearColor,
+    glColor3f,
+    glDeleteTextures,
+    glDisable,
+    glEnable,
+    glEnd,
+    glGenTextures,
+    glLoadIdentity,
+    glMatrixMode,
+    glOrtho,
+    glTexCoord2f,
+    glTexImage2D,
+    glTexParameteri,
+    glVertex2f,
+    glViewport,
+)
+
+from .database_thread import DatabaseThread
+from .image import Image
+from .models import ViewerOptions
+from .providers import DatabaseTileProvider
+from .viewer_state import ViewerState
+from .workspace import Workspace
+
+WORKSPACE_DUMP_PATH = "/tmp/workspace-dump.galapix"
+
+
+@dataclass(slots=True)
+class TextureCache:
+    textures: dict[tuple[str, int, int, int], int] = field(default_factory=dict)
+    idle_frames: dict[tuple[str, int, int, int], int] = field(default_factory=dict)
+    live_keys: set[tuple[str, int, int, int]] = field(default_factory=set)
+    max_idle_frames: int = 120
+
+    def begin_frame(self) -> None:
+        self.live_keys.clear()
+
+    def get_or_create(self, image: Image, scale: int, x: int, y: int, jpeg_bytes: bytes) -> int:
+        key = (image.url, scale, x, y)
+        texture = self.textures.get(key)
+        if texture is not None:
+            self.live_keys.add(key)
+            self.idle_frames[key] = 0
+            return texture
+        texture = int(glGenTextures(1))
+        glBindTexture(GL_TEXTURE_2D, texture)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+        vips_image = pyvips.Image.new_from_buffer(jpeg_bytes, "")
+        memory = np.frombuffer(vips_image.write_to_memory(), dtype=np.uint8)
+        channels = vips_image.bands
+        fmt = {1: GL_LUMINANCE, 3: GL_RGB, 4: GL_RGBA}.get(channels, GL_RGB)
+        glTexImage2D(
+            GL_TEXTURE_2D,
+            0,
+            fmt,
+            vips_image.width,
+            vips_image.height,
+            0,
+            fmt,
+            GL_UNSIGNED_BYTE,
+            memory,
+        )
+        self.textures[key] = texture
+        self.idle_frames[key] = 0
+        self.live_keys.add(key)
+        return texture
+
+    def clear(self) -> None:
+        if self.textures:
+            glDeleteTextures(list(self.textures.values()))
+            self.textures.clear()
+            self.idle_frames.clear()
+            self.live_keys.clear()
+
+    def end_frame(self) -> None:
+        expired: list[tuple[str, int, int, int]] = []
+        for key in list(self.textures):
+            if key in self.live_keys:
+                self.idle_frames[key] = 0
+            else:
+                self.idle_frames[key] = self.idle_frames.get(key, 0) + 1
+                if self.idle_frames[key] >= self.max_idle_frames:
+                    expired.append(key)
+        if expired:
+            glDeleteTextures([self.textures[key] for key in expired])
+            for key in expired:
+                del self.textures[key]
+                self.idle_frames.pop(key, None)
+
+
+class Viewer:
+    def __init__(self, options: ViewerOptions, workspace: Workspace, db_thread: DatabaseThread) -> None:
+        self.options = options
+        self.workspace = workspace
+        self.db_thread = db_thread
+        self.state = ViewerState()
+        self.texture_cache = TextureCache()
+        self.background_colors = [
+            (0.39, 0.39, 0.39, 1.0),
+            (0.25, 0.25, 0.25, 1.0),
+            (0.50, 0.50, 0.50, 1.0),
+            (1.00, 1.00, 1.00, 1.0),
+            (1.00, 0.00, 0.00, 1.0),
+            (1.00, 1.00, 0.00, 1.0),
+            (1.00, 0.00, 1.00, 1.0),
+            (0.00, 1.00, 0.00, 1.0),
+            (0.00, 1.00, 1.00, 1.0),
+            (0.00, 0.00, 1.00, 1.0),
+            (0.50, 0.00, 0.00, 1.0),
+            (0.50, 0.50, 0.00, 1.0),
+            (0.50, 0.00, 0.50, 1.0),
+            (0.00, 0.50, 0.00, 1.0),
+            (0.00, 0.50, 0.50, 1.0),
+            (0.00, 0.00, 0.50, 1.0),
+        ]
+        self.background_index = 0
+        self.needs_redraw = True
+        self.viewport_width = options.width
+        self.viewport_height = options.height
+        self.show_status = True
+        self.show_grid = False
+        self.grid_size = 400.0
+
+    def world_to_screen(self, x: float, y: float) -> tuple[float, float]:
+        return (
+            self.state.offset_x + x * self.state.scale,
+            self.state.offset_y + y * self.state.scale,
+        )
+
+    def set_viewport(self, width: int, height: int) -> None:
+        self.viewport_width = width
+        self.viewport_height = height
+        glViewport(0, 0, width, height)
+        glMatrixMode(GL_PROJECTION)
+        glLoadIdentity()
+        glOrtho(0, width, height, 0, -1, 1)
+        glMatrixMode(GL_MODELVIEW)
+        self.needs_redraw = True
+
+    def zoom_home(self) -> None:
+        self.state = ViewerState()
+        self.needs_redraw = True
+
+    def zoom_to_workspace(self) -> None:
+        left, top, right, bottom = self.workspace.bounding_rect()
+        self.state.zoom_to_rect(self.viewport_width, self.viewport_height, left, top, right, bottom)
+        self.needs_redraw = True
+
+    def zoom_to_selection(self) -> None:
+        rect = self.workspace.selection_bounding_rect()
+        if rect is None:
+            self.zoom_to_workspace()
+            return
+        left, top, right, bottom = rect
+        self.state.zoom_to_rect(self.viewport_width, self.viewport_height, left, top, right, bottom)
+        self.needs_redraw = True
+
+    def save_workspace(self, path: str = WORKSPACE_DUMP_PATH) -> None:
+        self.workspace.save(path)
+
+    def load_workspace(self, path: str = WORKSPACE_DUMP_PATH) -> None:
+        self.workspace.load(path)
+        self.zoom_to_workspace()
+        self.request_redraw()
+
+    def refresh_selection(self) -> None:
+        refreshed = False
+        for image in self.workspace.selected_images():
+            image.refresh()
+            refreshed = True
+        if refreshed:
+            self.request_redraw()
+
+    def update(self, delta: float) -> None:
+        processed = self.db_thread.poll_deliveries()
+        self.workspace.update(delta)
+        for image in self.workspace.images:
+            image.process_queues()
+        if processed or self.workspace.is_animated():
+            self.needs_redraw = True
+
+    def draw(self) -> None:
+        self.texture_cache.begin_frame()
+        glClearColor(*self.background_colors[self.background_index])
+        glClear(GL_COLOR_BUFFER_BIT)
+        glLoadIdentity()
+        glEnable(GL_TEXTURE_2D)
+        if self.show_grid:
+            self._draw_grid()
+        clip = self.state.world_rect(self.viewport_width, self.viewport_height)
+        for image in self.workspace.images:
+            if not image.overlaps(clip):
+                if image.visible:
+                    image.on_leave_screen()
+                continue
+            if not image.visible:
+                image.on_enter_screen()
+            self._draw_image(image)
+        self.texture_cache.end_frame()
+        self.needs_redraw = False
+
+    def request_redraw(self) -> None:
+        self.needs_redraw = True
+
+    def toggle_status(self) -> None:
+        self.show_status = not self.show_status
+        self.request_redraw()
+
+    def cycle_background(self, backwards: bool = False) -> None:
+        if backwards:
+            self.background_index = (self.background_index - 1) % len(self.background_colors)
+        else:
+            self.background_index = (self.background_index + 1) % len(self.background_colors)
+        self.request_redraw()
+
+    def toggle_grid(self) -> None:
+        self.show_grid = not self.show_grid
+        self.request_redraw()
+
+    def status_text(self) -> str:
+        selected = len(self.workspace.selected_images())
+        visible = sum(1 for image in self.workspace.images if image.visible)
+        textures = len(self.texture_cache.textures)
+        return (
+            f"{self.options.title} | "
+            f"zoom={self.state.scale:.2f} "
+            f"images={len(self.workspace.images)} "
+            f"selected={selected} "
+            f"visible={visible} "
+            f"textures={textures}"
+        )
+
+    def clear_all_caches(self) -> None:
+        for image in self.workspace.images:
+            if image.cache is not None:
+                image.cache.clear()
+            image.visible = False
+        self.texture_cache.clear()
+        self.request_redraw()
+
+    def print_visible_images(self) -> None:
+        clip = self.state.world_rect(self.viewport_width, self.viewport_height)
+        for image in self.workspace.visible_images(clip):
+            print(image.url)
+
+    def print_info(self) -> None:
+        clip = self.state.world_rect(self.viewport_width, self.viewport_height)
+        visible = self.workspace.visible_images(clip)
+        print("Workspace Info:")
+        print(f"  images: {len(self.workspace.images)}")
+        print(f"  selected: {len(self.workspace.selected_images())}")
+        print(f"  visible: {len(visible)}")
+        print(f"  zoom: {self.state.scale:.3f}")
+        print(f"  offset: ({self.state.offset_x:.1f}, {self.state.offset_y:.1f})")
+        print(f"  textures: {len(self.texture_cache.textures)}")
+
+    def _draw_solid_rect(self, left: float, top: float, right: float, bottom: float, color: tuple[float, float, float]) -> None:
+        glDisable(GL_TEXTURE_2D)
+        glColor3f(*color)
+        glBegin(GL_QUADS)
+        glVertex2f(left, top)
+        glVertex2f(right, top)
+        glVertex2f(right, bottom)
+        glVertex2f(left, bottom)
+        glEnd()
+        glEnable(GL_TEXTURE_2D)
+        glColor3f(1.0, 1.0, 1.0)
+
+    def _draw_textured_rect(
+        self,
+        texture: int,
+        left: float,
+        top: float,
+        right: float,
+        bottom: float,
+        u0: float = 0.0,
+        v0: float = 0.0,
+        u1: float = 1.0,
+        v1: float = 1.0,
+    ) -> None:
+        glBindTexture(GL_TEXTURE_2D, texture)
+        glBegin(GL_QUADS)
+        glTexCoord2f(u0, v0)
+        glVertex2f(left, top)
+        glTexCoord2f(u1, v0)
+        glVertex2f(right, top)
+        glTexCoord2f(u1, v1)
+        glVertex2f(right, bottom)
+        glTexCoord2f(u0, v1)
+        glVertex2f(left, bottom)
+        glEnd()
+
+    def _draw_outline(self, left: float, top: float, right: float, bottom: float, color: tuple[float, float, float]) -> None:
+        glDisable(GL_TEXTURE_2D)
+        glColor3f(*color)
+        glBegin(GL_LINE_LOOP)
+        glVertex2f(left, top)
+        glVertex2f(right, top)
+        glVertex2f(right, bottom)
+        glVertex2f(left, bottom)
+        glEnd()
+        glEnable(GL_TEXTURE_2D)
+        glColor3f(1.0, 1.0, 1.0)
+
+    def _draw_grid(self) -> None:
+        left, top, right, bottom = self.state.world_rect(self.viewport_width, self.viewport_height)
+        start_x = math.floor(left / self.grid_size) * self.grid_size
+        end_x = math.ceil(right / self.grid_size) * self.grid_size
+        start_y = math.floor(top / self.grid_size) * self.grid_size
+        end_y = math.ceil(bottom / self.grid_size) * self.grid_size
+
+        glDisable(GL_TEXTURE_2D)
+        glColor3f(0.35, 0.15, 0.15)
+        glBegin(GL_LINES)
+
+        x = start_x
+        while x <= end_x:
+            sx0, sy0 = self.world_to_screen(x, top)
+            sx1, sy1 = self.world_to_screen(x, bottom)
+            glVertex2f(sx0, sy0)
+            glVertex2f(sx1, sy1)
+            x += self.grid_size
+
+        y = start_y
+        while y <= end_y:
+            sx0, sy0 = self.world_to_screen(left, y)
+            sx1, sy1 = self.world_to_screen(right, y)
+            glVertex2f(sx0, sy0)
+            glVertex2f(sx1, sy1)
+            y += self.grid_size
+
+        glEnd()
+        glEnable(GL_TEXTURE_2D)
+        glColor3f(1.0, 1.0, 1.0)
+
+    def select_at_screen(self, screen_x: float, screen_y: float) -> None:
+        world_x, world_y = self.state.screen_to_world(screen_x, screen_y)
+        self.workspace.select_at(world_x, world_y)
+        self.request_redraw()
+
+    def _draw_image(self, image: Image) -> None:
+        img_left, img_top, img_right, img_bottom = image.rect()
+        if image.provider is None:
+            left, top = self.world_to_screen(img_left, img_top)
+            right, bottom = self.world_to_screen(img_right, img_bottom)
+            self._draw_solid_rect(left, top, right, bottom, (0.55, 0.45, 0.10))
+            if image.selected:
+                self._draw_outline(left, top, right, bottom, (1.0, 1.0, 1.0))
+            if not image.file_entry_requested:
+                image.file_entry_requested = True
+
+                def on_file(entry, image=image) -> None:
+                    image.receive_file_entry(entry, DatabaseTileProvider(self.db_thread, entry))
+
+                def on_tile(entry, tile, image=image) -> None:
+                    image.receive_tile(tile)
+
+                self.db_thread.request_file(image.url, on_file, on_tile)
+            return
+
+        if image.cache is None:
+            return
+
+        zoom = self.state.scale
+        scale = image.choose_scale(zoom)
+        image.cache.set_focus_scale(scale)
+        factor = 2 ** scale
+        source_w, source_h = image.provider.get_size()
+        scaled_w = max(1, math.ceil(source_w / factor))
+        scaled_h = max(1, math.ceil(source_h / factor))
+        tiles_x = math.ceil(scaled_w / 256)
+        tiles_y = math.ceil(scaled_h / 256)
+        tile_world_w = 256 * factor * image.placement.scale
+        tile_world_h = 256 * factor * image.placement.scale
+
+        clip_left, clip_top, clip_right, clip_bottom = self.state.world_rect(self.viewport_width, self.viewport_height)
+        start_x = max(0, int((clip_left - img_left) // tile_world_w))
+        end_x = min(tiles_x, int(math.ceil((clip_right - img_left) / tile_world_w)))
+        start_y = max(0, int((clip_top - img_top) // tile_world_h))
+        end_y = min(tiles_y, int(math.ceil((clip_bottom - img_top) / tile_world_h)))
+
+        for ty in range(start_y, end_y):
+            for tx in range(start_x, end_x):
+                tile_left_world = img_left + tx * tile_world_w
+                tile_top_world = img_top + ty * tile_world_h
+                left, top = self.world_to_screen(tile_left_world, tile_top_world)
+                right, bottom = self.world_to_screen(
+                    tile_left_world + tile_world_w,
+                    tile_top_world + tile_world_h,
+                )
+
+                tile = image.cache.request_tile(scale, tx, ty)
+                if tile is not None:
+                    texture = self.texture_cache.get_or_create(image, scale, tx, ty, tile.jpeg_bytes)
+                    exact_right, exact_bottom = self.world_to_screen(
+                        tile_left_world + tile.width * factor * image.placement.scale,
+                        tile_top_world + tile.height * factor * image.placement.scale,
+                    )
+                    self._draw_textured_rect(texture, left, top, exact_right, exact_bottom)
+                    continue
+
+                image.cache.request_parent_tiles(scale, tx, ty)
+
+                child_scale = scale - 1
+                if child_scale >= 0:
+                    drew_child = False
+                    child_factor = factor / 2.0
+                    for child_y in range(2):
+                        for child_x in range(2):
+                            child_tx = tx * 2 + child_x
+                            child_ty = ty * 2 + child_y
+                            child_tile = image.cache.get_cached_tile(child_scale, child_tx, child_ty)
+                            if child_tile is None:
+                                continue
+                            drew_child = True
+                            child_texture = self.texture_cache.get_or_create(
+                                image,
+                                child_scale,
+                                child_tx,
+                                child_ty,
+                                child_tile.jpeg_bytes,
+                            )
+                            child_left_world = tile_left_world + child_x * (tile_world_w / 2.0)
+                            child_top_world = tile_top_world + child_y * (tile_world_h / 2.0)
+                            child_left, child_top = self.world_to_screen(child_left_world, child_top_world)
+                            child_right, child_bottom = self.world_to_screen(
+                                child_left_world + child_tile.width * child_factor * image.placement.scale,
+                                child_top_world + child_tile.height * child_factor * image.placement.scale,
+                            )
+                            self._draw_textured_rect(child_texture, child_left, child_top, child_right, child_bottom)
+                    if drew_child:
+                        continue
+
+                parent_result = image.cache.find_parent_tile(scale, tx, ty)
+                if parent_result is not None:
+                    parent_tile, downscale = parent_result
+                    parent_texture = self.texture_cache.get_or_create(
+                        image,
+                        parent_tile.scale,
+                        parent_tile.x,
+                        parent_tile.y,
+                        parent_tile.jpeg_bytes,
+                    )
+                    u0 = (tx % downscale) / downscale
+                    v0 = (ty % downscale) / downscale
+                    u1 = u0 + 1.0 / downscale
+                    v1 = v0 + 1.0 / downscale
+                    self._draw_textured_rect(parent_texture, left, top, right, bottom, u0, v0, u1, v1)
+                    continue
+
+                self._draw_solid_rect(left, top, right, bottom, (0.30, 0.10, 0.30))
+
+        if image.selected:
+            left, top = self.world_to_screen(img_left, img_top)
+            right, bottom = self.world_to_screen(img_right, img_bottom)
+            self._draw_outline(left, top, right, bottom, (1.0, 1.0, 1.0))
