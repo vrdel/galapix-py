@@ -138,12 +138,17 @@ class GalapixApp:
             with database.bulk_writes():
                 for path in self.expand_paths(paths):
                     entry = database.get_file_entry(path)
-                    if entry is None or not database.file_exists_and_matches(entry):
+                    is_current = entry is not None and database.file_exists_and_matches(entry)
+                    if not is_current:
                         if entry is not None and entry.file_id is not None:
                             database.delete_file_entry(entry.file_id, commit=False)
                         entry = database.store_file_entry(probe_file_entry(path), commit=False)
                     min_scale = 0 if all_tiles else max(0, entry.thumbnail_scale - 3)
                     max_scale = entry.thumbnail_scale
+                    cached_min, cached_max = database.get_min_max_scale(entry.file_id)
+                    if is_current and cached_min is not None and cached_max is not None:
+                        if cached_min <= min_scale and cached_max >= max_scale:
+                            continue
                     database.store_tiles(
                         entry.file_id,
                         generate_tiles_for_entry(entry, min_scale, max_scale),

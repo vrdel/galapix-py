@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import call, patch
@@ -104,6 +105,34 @@ class GalapixPyCoreTests(unittest.TestCase):
                 self.assertEqual(database.get_tile(listed[0].file_id, 0, 0, 0).jpeg_bytes, b"tile")
             finally:
                 database.close()
+
+    def test_prepare_all_tiles_skips_unchanged_cached_images(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            image_path = make_test_jpeg(base, width=320, height=240)
+            options = ViewerOptions(database=base / "db")
+            app = GalapixApp(options)
+
+            app.thumbgen([str(image_path)], all_tiles=True)
+
+            with patch("galapix_py.tiling.generate_tiles_for_entry", side_effect=AssertionError("should skip unchanged image")):
+                app.thumbgen([str(image_path)], all_tiles=True)
+
+    def test_prepare_all_tiles_regenerates_changed_images(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            image_path = make_test_jpeg(base, width=320, height=240)
+            options = ViewerOptions(database=base / "db")
+            app = GalapixApp(options)
+
+            app.thumbgen([str(image_path)], all_tiles=True)
+            time.sleep(0.01)
+            pyvips.Image.black(400, 200).bandjoin([16, 200]).jpegsave(str(image_path), Q=90)
+
+            original = generate_tiles_for_entry
+            with patch("galapix_py.tiling.generate_tiles_for_entry", wraps=original) as wrapped:
+                app.thumbgen([str(image_path)], all_tiles=True)
+            self.assertTrue(wrapped.called)
 
     def test_view_uncached_files_are_stored_before_layout(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
