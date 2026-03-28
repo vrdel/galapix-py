@@ -6,6 +6,7 @@ mod vips;
 use anyhow::{bail, Context, Result};
 use clap::Parser;
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use crate::db::{Database, FileMeta};
 
@@ -24,6 +25,7 @@ struct Cli {
 }
 
 fn main() -> Result<()> {
+    let started_at = Instant::now();
     let cli = Cli::parse();
     let threads = cli.threads.max(1);
     let db_root = expand_home(&cli.database)?;
@@ -54,12 +56,14 @@ fn main() -> Result<()> {
     println!("  threads: {}", threads);
 
     if pending.is_empty() {
+        println!("  elapsed: {}", format_elapsed(started_at.elapsed()));
         return Ok(());
     }
 
     let stats = prepare::run(&mut db, pending, threads)?;
     println!("  prepared: {}", stats.prepared_images);
     println!("  stored_tiles: {}", stats.stored_tiles);
+    println!("  elapsed: {}", format_elapsed(started_at.elapsed()));
     Ok(())
 }
 
@@ -69,5 +73,14 @@ fn expand_home(value: &str) -> Result<PathBuf> {
         Ok(PathBuf::from(home).join(stripped))
     } else {
         Ok(PathBuf::from(value))
+    }
+}
+
+fn format_elapsed(duration: Duration) -> String {
+    let seconds = duration.as_secs_f64();
+    if seconds >= 60.0 {
+        format!("{seconds:.2}s ({:.2}m)", seconds / 60.0)
+    } else {
+        format!("{seconds:.2}s")
     }
 }
