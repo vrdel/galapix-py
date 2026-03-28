@@ -182,9 +182,3 @@ Quit:
   - title-based status overlay
   - optional filename labels above images
   - live render validation mode
-- Not implemented yet:
-  - Zoomify provider
-  - Mandelbrot / synthetic providers
-  - GTK frontend
-  - the original C++ tool system (move/resize/rotate/grid tools)
-  - richer on-screen text overlay
