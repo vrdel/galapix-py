@@ -1,10 +1,13 @@
 PYTHON ?= .uv-venv/bin/python
 
-.PHONY: wheel-devel clean clean-all
+.PHONY: wheel-devel rust-prepare clean clean-all
 
 wheel-devel:
 	uv pip install --python $(PYTHON) build
 	$(PYTHON) -m build --wheel
+
+rust-prepare:
+	cargo build --release --manifest-path galapix-prepare-rs/Cargo.toml
 
 clean:
 	rm -rf build dist .pytest_cache .mypy_cache
