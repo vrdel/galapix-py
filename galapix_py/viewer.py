@@ -278,10 +278,11 @@ class Viewer:
 
     def update(self, delta: float) -> None:
         processed = self.db_thread.poll_deliveries() if self.db_thread is not None else 0
+        state_changed = self.state.update(delta)
         self.workspace.update(delta)
         for image in self.workspace.images:
             image.process_queues()
-        if processed or self.workspace.is_animated():
+        if processed or state_changed or self.workspace.is_animated():
             self.needs_redraw = True
 
     def draw(self) -> FrameRenderStats:

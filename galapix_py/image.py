@@ -228,8 +228,6 @@ class Image:
 
     def on_leave_screen(self) -> None:
         self.visible = False
-        if self.cache is not None:
-            self.cache.clear()
 
     def refresh(self) -> None:
         self.provider = None

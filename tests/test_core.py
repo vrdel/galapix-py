@@ -32,6 +32,7 @@ from galapix_py.viewer import (
     filename_overlay_rect,
     overlay_label_text,
 )
+from galapix_py.viewer_state import ViewerState
 from galapix_py.workspace import Workspace
 
 
@@ -511,6 +512,54 @@ class GalapixPyCoreTests(unittest.TestCase):
         cache.process_queue()
 
         self.assertEqual(list(cache.tiles.keys()), [(0, 0, 0), (0, 2, 0)])
+
+    def test_image_on_leave_screen_keeps_cached_tiles(self) -> None:
+        class DummyProvider:
+            def request_tile(self, scale: int, x: int, y: int, callback):
+                raise AssertionError("request_tile should not be called")
+
+            def get_size(self) -> tuple[int, int]:
+                return (256, 256)
+
+            def get_max_scale(self) -> int:
+                return 0
+
+        image = Image("/tmp/a.jpg")
+        image.set_provider(DummyProvider())
+        image.cache.receive_tile(TileRecord(None, 0, 0, 0, 64, 64, b"a"))
+        image.cache.process_queue()
+
+        image.on_enter_screen()
+        image.on_leave_screen()
+
+        self.assertFalse(image.visible)
+        self.assertIn((0, 0, 0), image.cache.tiles)
+
+    def test_viewer_state_move_and_zoom_interpolate_toward_target(self) -> None:
+        state = ViewerState()
+        state.move(120.0, -80.0)
+        state.zoom(1.5, 300.0, 200.0)
+
+        self.assertNotEqual(state.offset_x, state.target_offset_x)
+        self.assertNotEqual(state.offset_y, state.target_offset_y)
+        self.assertNotEqual(state.scale, state.target_scale)
+
+        changed = state.update(0.016)
+        self.assertTrue(changed)
+        self.assertNotEqual(state.offset_x, 0.0)
+        self.assertNotEqual(state.offset_y, 0.0)
+        self.assertGreater(state.scale, 1.0)
+
+    def test_viewer_state_zoom_to_rect_snaps_current_and_target(self) -> None:
+        state = ViewerState()
+        state.move(50.0, 25.0)
+        state.zoom(1.2, 100.0, 80.0)
+
+        state.zoom_to_rect(1000, 500, 0.0, 0.0, 200.0, 100.0)
+
+        self.assertEqual(state.scale, state.target_scale)
+        self.assertEqual(state.offset_x, state.target_offset_x)
+        self.assertEqual(state.offset_y, state.target_offset_y)
 
     def test_configure_texture_upload_state_sets_alignment_and_clamp(self) -> None:
         with (
