@@ -3,6 +3,7 @@ from __future__ import annotations
 import concurrent.futures
 import fnmatch
 import tempfile
+import time
 from pathlib import Path
 from typing import Iterable
 
@@ -145,6 +146,8 @@ class GalapixApp:
     def prepare(self, paths: Iterable[str]) -> None:
         from .tiling import generate_tiles_for_entry, probe_file_entry
 
+        started_at = time.perf_counter()
+
         def prepare_one(path: str, cached_entry, cached_min: int | None, cached_max: int | None):
             fresh = probe_file_entry(path)
             is_current = (
@@ -174,6 +177,9 @@ class GalapixApp:
                 return
 
             worker_count = max(1, self.options.threads)
+            skipped = 0
+            prepared = 0
+            stored_tiles = 0
             with database.bulk_writes():
                 with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
                     pending: dict[concurrent.futures.Future, tuple[str, object | None]] = {}
@@ -204,15 +210,33 @@ class GalapixApp:
                             path, cached_entry = pending.pop(future)
                             _, fresh, should_skip, tiles = future.result()
                             if should_skip:
+                                skipped += 1
                                 submit_next()
                                 continue
                             if cached_entry is not None and cached_entry.file_id is not None:
                                 database.delete_file_entry(cached_entry.file_id, commit=False)
                             stored_entry = database.store_file_entry(fresh, commit=False)
                             database.store_tiles(stored_entry.file_id, tiles, commit=False)
+                            prepared += 1
+                            stored_tiles += len(tiles)
                             submit_next()
+            pending_count = len(expanded) - skipped
+            print("galapix-py")
+            print(f"  database: {database.path}")
+            print(f"  discovered: {len(expanded)}")
+            print(f"  skipped: {skipped}")
+            print(f"  pending: {pending_count}")
+            print(f"  threads: {worker_count}")
+            print(f"  prepared: {prepared}")
+            print(f"  stored_tiles: {stored_tiles}")
+            print(f"  elapsed: {self._format_elapsed(time.perf_counter() - started_at)}")
         finally:
             database.close()
+
+    def _format_elapsed(self, seconds: float) -> str:
+        if seconds >= 60.0:
+            return f"{seconds:.2f}s ({seconds / 60.0:.2f}m)"
+        return f"{seconds:.2f}s"
 
     def list_files(self) -> None:
         database = Database(self.options.database)

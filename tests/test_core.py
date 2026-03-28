@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import io
 import tempfile
 import threading
 import time
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import call, patch
 
@@ -175,6 +177,28 @@ class GalapixPyCoreTests(unittest.TestCase):
 
             with patch("galapix_py.tiling.generate_tiles_for_entry", side_effect=AssertionError("should skip unchanged image")):
                 app.prepare([str(image_path)])
+
+    def test_prepare_prints_summary_matching_rust_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            image_path = make_test_jpeg(base, width=320, height=240)
+            options = ViewerOptions(database=base / "db", threads=12)
+            app = GalapixApp(options)
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                app.prepare([str(image_path)])
+
+            text = output.getvalue()
+            self.assertIn("galapix-py\n", text)
+            self.assertIn(f"  database: {base / 'db' / 'cache.sqlite3'}\n", text)
+            self.assertIn("  discovered: 1\n", text)
+            self.assertIn("  skipped: 0\n", text)
+            self.assertIn("  pending: 1\n", text)
+            self.assertIn("  threads: 12\n", text)
+            self.assertIn("  prepared: 1\n", text)
+            self.assertIn("  stored_tiles: 3\n", text)
+            self.assertRegex(text, r"  elapsed: \d+\.\d{2}s(?: \(\d+\.\d{2}m\))?\n")
 
     def test_prepare_all_tiles_regenerates_changed_images(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
