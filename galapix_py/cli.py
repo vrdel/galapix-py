@@ -22,6 +22,7 @@ def build_parser() -> argparse.ArgumentParser:
         if name == "view":
             cmd.add_argument("-g", "--geometry", default="1280x720")
             cmd.add_argument("-f", "--fullscreen", action="store_true")
+            cmd.add_argument("--sort", choices=("name", "mtime"))
             cmd.add_argument("--images-per-row", type=int, default=None)
             cmd.add_argument("--spacing", type=int, default=1)
             cmd.add_argument("--memory-only", action="store_true")
@@ -69,6 +70,7 @@ def main() -> None:
         width=width,
         height=height,
         fullscreen=getattr(args, "fullscreen", False),
+        sort=getattr(args, "sort", None),
         images_per_row=getattr(args, "images_per_row", None),
         spacing=max(1, getattr(args, "spacing", 1)),
         show_filenames=getattr(args, "show_filenames", False),

@@ -51,6 +51,13 @@ class Workspace:
     def sort_by_url(self, reverse: bool = False) -> None:
         self.images.sort(key=lambda image: image.url, reverse=reverse)
 
+    def sort_by_name(self, reverse: bool = False) -> None:
+        def name_key(image: Image) -> tuple[str, str]:
+            path = Path(image.url)
+            return (path.name.lower(), image.url)
+
+        self.images.sort(key=name_key, reverse=reverse)
+
     def sort_by_mtime(self, reverse: bool = False) -> None:
         def mtime_key(image: Image) -> tuple[int, str]:
             try:

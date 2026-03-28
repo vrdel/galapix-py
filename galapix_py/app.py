@@ -18,6 +18,12 @@ class GalapixApp:
     def row_spacing(self) -> float:
         return 40.0 * max(1, self.options.spacing)
 
+    def apply_initial_sort(self, workspace) -> None:
+        if self.options.sort == "name":
+            workspace.sort_by_name()
+        elif self.options.sort == "mtime":
+            workspace.sort_by_mtime()
+
     def expand_paths(self, paths: Iterable[str]) -> list[str]:
         results: list[str] = []
         seen: set[str] = set()
@@ -122,6 +128,7 @@ class GalapixApp:
                     image.set_provider(DatabaseTileProvider(db_thread, resolve_database_entry(image.url)))
 
         if not loaded_workspace:
+            self.apply_initial_sort(workspace)
             workspace.layout_row(spacing=self.row_spacing(), max_per_row=self.options.images_per_row)
             workspace.update(1.0)
 

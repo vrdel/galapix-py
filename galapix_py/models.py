@@ -51,6 +51,7 @@ class ViewerOptions:
     width: int = 1280
     height: int = 720
     fullscreen: bool = False
+    sort: str | None = None
     images_per_row: int | None = None
     spacing: int = 1
     show_filenames: bool = False

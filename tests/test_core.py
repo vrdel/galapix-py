@@ -278,6 +278,36 @@ class GalapixPyCoreTests(unittest.TestCase):
             self.assertEqual(workspace.images[1].size(), (160, 300))
             self.assertLess(workspace.images[0].placement.x, workspace.images[1].placement.x)
 
+    def test_view_sort_name_orders_initial_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            first = base / "z-last.jpg"
+            second = base / "a-first.jpg"
+            pyvips.Image.black(120, 80).bandjoin([64, 128]).jpegsave(str(first), Q=90)
+            pyvips.Image.black(120, 80).bandjoin([64, 128]).jpegsave(str(second), Q=90)
+
+            options = ViewerOptions(database=base / "db", sort="name")
+            app = GalapixApp(options)
+
+            class StopViewer(Exception):
+                pass
+
+            captured = {}
+
+            def fake_run(self) -> None:
+                captured["workspace"] = self.viewer.workspace
+                raise StopViewer()
+
+            with patch("galapix_py.sdl_viewer.SDLViewer.run", new=fake_run):
+                with self.assertRaises(StopViewer):
+                    app.view([str(first), str(second)])
+
+            workspace = captured["workspace"]
+            self.assertEqual(
+                [Path(image.url).name for image in workspace.images],
+                ["a-first.jpg", "z-last.jpg"],
+            )
+
     def test_workspace_save_load_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
@@ -380,6 +410,18 @@ class GalapixPyCoreTests(unittest.TestCase):
             workspace.sort_by_mtime(reverse=True)
             self.assertEqual([Path(image.url).name for image in workspace.images], ["b.jpg", "a.jpg"])
 
+    def test_workspace_sort_by_name_orders_by_basename(self) -> None:
+        workspace = Workspace()
+        workspace.add_image(Image("/tmp/zebra/alpha.jpg"))
+        workspace.add_image(Image("/tmp/able/zulu.jpg"))
+        workspace.add_image(Image("/tmp/beta/bravo.jpg"))
+
+        workspace.sort_by_name()
+        self.assertEqual(
+            [Path(image.url).name for image in workspace.images],
+            ["alpha.jpg", "bravo.jpg", "zulu.jpg"],
+        )
+
     def test_workspace_layout_row_auto_wraps_nine_images_to_three_per_row(self) -> None:
         workspace = Workspace()
         for index in range(9):
@@ -441,6 +483,13 @@ class GalapixPyCoreTests(unittest.TestCase):
         parser = build_parser()
         args = parser.parse_args(["view", "--images-per-row", "10"])
         self.assertEqual(args.images_per_row, 10)
+
+    def test_cli_accepts_view_sort(self) -> None:
+        from galapix_py.cli import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["view", "--sort", "mtime"])
+        self.assertEqual(args.sort, "mtime")
 
     def test_cli_accepts_spacing_multiplier(self) -> None:
         from galapix_py.cli import build_parser
