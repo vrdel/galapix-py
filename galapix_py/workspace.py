@@ -51,6 +51,16 @@ class Workspace:
     def sort_by_url(self, reverse: bool = False) -> None:
         self.images.sort(key=lambda image: image.url, reverse=reverse)
 
+    def sort_by_mtime(self, reverse: bool = False) -> None:
+        def mtime_key(image: Image) -> tuple[int, str]:
+            try:
+                mtime_ns = Path(image.url).stat().st_mtime_ns
+            except FileNotFoundError:
+                mtime_ns = -1
+            return (mtime_ns, image.url)
+
+        self.images.sort(key=mtime_key, reverse=reverse)
+
     def isolate_selection(self) -> None:
         selected = self.selected_images()
         if not selected:

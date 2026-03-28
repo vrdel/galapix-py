@@ -320,6 +320,25 @@ class GalapixPyCoreTests(unittest.TestCase):
             0.0,
         )
 
+    def test_workspace_sort_by_mtime_orders_oldest_first(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            first = base / "a.jpg"
+            second = base / "b.jpg"
+            pyvips.Image.black(32, 32).bandjoin([32, 96]).jpegsave(str(first), Q=90)
+            time.sleep(0.01)
+            pyvips.Image.black(32, 32).bandjoin([64, 128]).jpegsave(str(second), Q=90)
+
+            workspace = Workspace()
+            workspace.add_image(Image(str(second)))
+            workspace.add_image(Image(str(first)))
+
+            workspace.sort_by_mtime()
+            self.assertEqual([Path(image.url).name for image in workspace.images], ["a.jpg", "b.jpg"])
+
+            workspace.sort_by_mtime(reverse=True)
+            self.assertEqual([Path(image.url).name for image in workspace.images], ["b.jpg", "a.jpg"])
+
     def test_workspace_layout_row_auto_wraps_nine_images_to_three_per_row(self) -> None:
         workspace = Workspace()
         for index in range(9):

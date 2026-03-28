@@ -101,6 +101,8 @@ Layout and ordering:
 
 - `1`: sort by URL and relayout
 - `Shift+1`: reverse sort by URL and relayout
+- `2`: sort by file mtime and relayout
+- `Shift+2`: reverse sort by file mtime and relayout
 
 Display and debug:
 

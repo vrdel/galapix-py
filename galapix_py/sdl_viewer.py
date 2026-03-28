@@ -214,6 +214,11 @@ class SDLViewer:
                 self.viewer.workspace.sort_by_url(reverse=shift)
                 self.viewer.workspace.layout_row(max_per_row=self.viewer.options.images_per_row)
                 self.viewer.request_redraw()
+            elif sym == sdl2.SDLK_2:
+                shift = bool(event.key.keysym.mod & sdl2.KMOD_SHIFT)
+                self.viewer.workspace.sort_by_mtime(reverse=shift)
+                self.viewer.workspace.layout_row(max_per_row=self.viewer.options.images_per_row)
+                self.viewer.request_redraw()
             elif sym == sdl2.SDLK_i:
                 self.viewer.workspace.isolate_selection()
                 self.viewer.workspace.layout_row(max_per_row=self.viewer.options.images_per_row)
