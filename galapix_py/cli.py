@@ -27,6 +27,8 @@ def build_parser() -> argparse.ArgumentParser:
             cmd.add_argument("--spacing", type=int, default=1)
             cmd.add_argument("--memory-only", action="store_true")
             cmd.add_argument("--show-filenames", action="store_true")
+        elif name == "prepare":
+            cmd.add_argument("--jpeg-quality", type=int, default=85)
         cmd.add_argument("paths", nargs="*")
 
     sub.add_parser("list")
@@ -66,6 +68,7 @@ def main() -> None:
     options = ViewerOptions(
         database=Path(args.database).expanduser(),
         threads=args.threads,
+        jpeg_quality=max(1, min(100, getattr(args, "jpeg_quality", 85))),
         title=args.title,
         width=width,
         height=height,

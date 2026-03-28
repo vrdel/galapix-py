@@ -178,7 +178,14 @@ class GalapixApp:
             )
             if is_complete:
                 return path, fresh, True, []
-            tiles = list(generate_tiles_for_entry(fresh, 0, fresh.thumbnail_scale))
+            tiles = list(
+                generate_tiles_for_entry(
+                    fresh,
+                    0,
+                    fresh.thumbnail_scale,
+                    quality=self.options.jpeg_quality,
+                )
+            )
             return path, fresh, False, tiles
 
         database = Database(self.options.database)

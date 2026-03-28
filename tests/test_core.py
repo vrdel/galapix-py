@@ -216,6 +216,20 @@ class GalapixPyCoreTests(unittest.TestCase):
                 app.prepare([str(image_path)])
             self.assertTrue(wrapped.called)
 
+    def test_prepare_passes_configured_jpeg_quality(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            image_path = make_test_jpeg(base, width=320, height=240)
+            options = ViewerOptions(database=base / "db", jpeg_quality=72)
+            app = GalapixApp(options)
+
+            original = generate_tiles_for_entry
+            with patch("galapix_py.tiling.generate_tiles_for_entry", wraps=original) as wrapped:
+                app.prepare([str(image_path)])
+
+            self.assertTrue(wrapped.called)
+            self.assertEqual(wrapped.call_args.kwargs["quality"], 72)
+
     def test_prepare_all_tiles_rebuilds_when_cached_entry_dimensions_are_stale(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
@@ -573,6 +587,13 @@ class GalapixPyCoreTests(unittest.TestCase):
         parser = build_parser()
         with self.assertRaises(SystemExit):
             parser.parse_args(["prepare", "--fullscreen"])
+
+    def test_cli_prepare_accepts_jpeg_quality(self) -> None:
+        from galapix_py.cli import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["prepare", "--jpeg-quality", "72"])
+        self.assertEqual(args.jpeg_quality, 72)
 
     def test_cli_main_swallows_keyboard_interrupt(self) -> None:
         from galapix_py import cli

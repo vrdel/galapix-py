@@ -47,6 +47,7 @@ class TileRecord:
 class ViewerOptions:
     database: Path
     threads: int = 4
+    jpeg_quality: int = 85
     title: str = "galapix-py"
     width: int = 1280
     height: int = 720
