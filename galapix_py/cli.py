@@ -12,7 +12,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-t", "--threads", type=int, default=4)
     parser.add_argument("-p", "--pattern", action="append", default=[])
     parser.add_argument("--ignore-pattern-case", action="store_true")
-    parser.add_argument("-r", "--title", default="galapix-py")
     parser.add_argument("--validate-render", action="store_true")
     parser.add_argument("--validation-timeout", type=float, default=5.0)
 
@@ -21,6 +20,7 @@ def build_parser() -> argparse.ArgumentParser:
     for name in ("view", "prepare", "selfcheck"):
         cmd = sub.add_parser(name)
         if name == "view":
+            cmd.add_argument("-r", "--title", default=argparse.SUPPRESS)
             cmd.add_argument("-g", "--geometry", default="1280x720")
             cmd.add_argument("-f", "--fullscreen", action="store_true")
             cmd.add_argument("--sort", choices=("name", "name-reverse", "mtime", "mtime-reverse"))
@@ -71,7 +71,7 @@ def main() -> None:
         threads=args.threads,
         jpeg_quality=max(1, min(100, getattr(args, "jpeg_quality", 85))),
         ignore_pattern_case=args.ignore_pattern_case,
-        title=args.title,
+        title=getattr(args, "title", "galapix-py"),
         width=width,
         height=height,
         fullscreen=getattr(args, "fullscreen", False),

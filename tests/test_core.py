@@ -567,6 +567,20 @@ class GalapixPyCoreTests(unittest.TestCase):
         args = parser.parse_args(["view", "--sort", "mtime-reverse"])
         self.assertEqual(args.sort, "mtime-reverse")
 
+    def test_cli_view_accepts_title_after_subcommand(self) -> None:
+        from galapix_py.cli import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["view", "-r", "galapix: posao maps"])
+        self.assertEqual(args.title, "galapix: posao maps")
+
+    def test_cli_rejects_title_before_subcommand(self) -> None:
+        from galapix_py.cli import build_parser
+
+        parser = build_parser()
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["-r", "galapix: posao maps", "view"])
+
     def test_cli_accepts_ignore_pattern_case(self) -> None:
         from galapix_py.cli import build_parser
 
