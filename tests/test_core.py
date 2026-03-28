@@ -29,6 +29,7 @@ from galapix_py.viewer import (
     GL_UNPACK_ALIGNMENT,
     build_label_rgba,
     configure_texture_upload_state,
+    filename_overlay_rect,
     overlay_label_text,
 )
 from galapix_py.workspace import Workspace
@@ -521,6 +522,13 @@ class GalapixPyCoreTests(unittest.TestCase):
         self.assertGreater(height, 0)
         self.assertEqual(int(rgba[:, :, 3].max()), 255)
         self.assertEqual(tuple(rgba[:, :, :3].max(axis=(0, 1))), (255, 255, 255))
+
+    def test_filename_overlay_rect_places_label_above_image(self) -> None:
+        rect = filename_overlay_rect(100.0, 200.0, 320.0, 80.0, 24.0)
+        self.assertEqual(rect, (100.0, 172.0, 180.0, 196.0))
+
+    def test_filename_overlay_rect_skips_very_narrow_images(self) -> None:
+        self.assertIsNone(filename_overlay_rect(100.0, 200.0, 130.0, 80.0, 24.0))
 
 
 if __name__ == "__main__":

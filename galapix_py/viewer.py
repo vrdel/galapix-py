@@ -165,6 +165,25 @@ def build_label_rgba(text: str, padding_x: int = 6, padding_y: int = 4) -> tuple
     return rgba, width, height
 
 
+def filename_overlay_rect(
+    screen_left: float,
+    screen_top: float,
+    screen_right: float,
+    label_width: float,
+    label_height: float,
+    margin: float = 4.0,
+) -> tuple[float, float, float, float] | None:
+    available_width = screen_right - screen_left
+    if available_width < 40.0:
+        return None
+    label_left = screen_left
+    label_top = screen_top - label_height - margin
+    label_right = min(screen_right, label_left + label_width)
+    if label_right <= label_left:
+        return None
+    return label_left, label_top, label_right, label_top + label_height
+
+
 class Viewer:
     def __init__(
         self,
@@ -388,17 +407,11 @@ class Viewer:
         left, top, right, _ = image.rect()
         screen_left, screen_top = self.world_to_screen(left, top)
         screen_right, _ = self.world_to_screen(right, top)
-        available_width = screen_right - screen_left
-        if available_width < 40.0:
-            return
         label = self._get_label_texture(overlay_label_text(image.url))
-        inset = 4.0
-        label_left = screen_left + inset
-        label_top = screen_top + inset
-        label_right = min(screen_right - inset, label_left + label.width)
-        if label_right <= label_left:
+        rect = filename_overlay_rect(screen_left, screen_top, screen_right, label.width, label.height)
+        if rect is None:
             return
-        label_bottom = label_top + label.height
+        label_left, label_top, label_right, label_bottom = rect
         self._draw_solid_rect(label_left, label_top, label_right, label_bottom, (0.0, 0.0, 0.0))
         u1 = (label_right - label_left) / label.width
         glColor4f(1.0, 1.0, 1.0, 1.0)
