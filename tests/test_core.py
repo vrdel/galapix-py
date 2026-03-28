@@ -372,10 +372,42 @@ class GalapixPyCoreTests(unittest.TestCase):
 
             with patch("galapix_py.sdl_viewer.SDLViewer.run", new=fake_run):
                 with self.assertRaises(StopViewer):
-                    app.view([str(image_path)], patterns=["*.JPG"])
+                    app.view([str(image_path)], patterns=[r".*\.JPG$"])
 
             workspace = captured["workspace"]
             self.assertEqual([Path(image.url).name for image in workspace.images], ["MixedCase.jpg"])
+
+    def test_view_pattern_supports_regex_alternation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            first = base / "argo-map.jpg"
+            second = base / "ldap-notes.jpg"
+            third = base / "other.jpg"
+            pyvips.Image.black(120, 80).bandjoin([64, 128]).jpegsave(str(first), Q=90)
+            pyvips.Image.black(120, 80).bandjoin([64, 128]).jpegsave(str(second), Q=90)
+            pyvips.Image.black(120, 80).bandjoin([64, 128]).jpegsave(str(third), Q=90)
+
+            options = ViewerOptions(database=base / "db", memory_only=True)
+            app = GalapixApp(options)
+
+            class StopViewer(Exception):
+                pass
+
+            captured = {}
+
+            def fake_run(self) -> None:
+                captured["workspace"] = self.viewer.workspace
+                raise StopViewer()
+
+            with patch("galapix_py.sdl_viewer.SDLViewer.run", new=fake_run):
+                with self.assertRaises(StopViewer):
+                    app.view([str(base)], patterns=[r"argo|ldap"])
+
+            workspace = captured["workspace"]
+            self.assertEqual(
+                [Path(image.url).name for image in workspace.images],
+                ["argo-map.jpg", "ldap-notes.jpg"],
+            )
 
     def test_workspace_save_load_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

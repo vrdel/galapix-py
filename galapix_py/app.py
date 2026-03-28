@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import concurrent.futures
-import fnmatch
+import re
 import tempfile
 import time
 from pathlib import Path
@@ -66,14 +66,17 @@ class GalapixApp:
                     results.append(resolved)
         return results
 
-    def pattern_matches(self, path: str, patterns: Iterable[str]) -> bool:
+    def compile_patterns(self, patterns: Iterable[str]) -> list[re.Pattern[str]]:
         pattern_list = list(patterns)
         if not pattern_list:
+            return []
+        flags = re.IGNORECASE if self.options.ignore_pattern_case else 0
+        return [re.compile(pattern, flags) for pattern in pattern_list]
+
+    def pattern_matches(self, path: str, patterns: list[re.Pattern[str]]) -> bool:
+        if not patterns:
             return True
-        if self.options.ignore_pattern_case:
-            folded_path = path.casefold()
-            return any(fnmatch.fnmatch(folded_path, pattern.casefold()) for pattern in pattern_list)
-        return any(fnmatch.fnmatch(path, pattern) for pattern in pattern_list)
+        return any(pattern.search(path) for pattern in patterns)
 
     def view(self, paths: Iterable[str], patterns: Iterable[str] = ()) -> None:
         from .database_thread import DatabaseThread
@@ -89,6 +92,7 @@ class GalapixApp:
         workspace = Workspace()
         database = None
         db_thread = None
+        compiled_patterns = self.compile_patterns(patterns)
 
         def build_memory_provider(url: str) -> InMemoryTileProvider:
             return InMemoryTileProvider(jobs, probe_file_entry(url))
@@ -106,7 +110,7 @@ class GalapixApp:
             db_thread = DatabaseThread(database, jobs)
 
             for entry in database.list_files():
-                if self.pattern_matches(entry.url, patterns):
+                if self.pattern_matches(entry.url, compiled_patterns):
                         image = Image(entry.url)
                         image.set_provider(DatabaseTileProvider(db_thread, entry))
                         workspace.add_image(image)
@@ -119,7 +123,7 @@ class GalapixApp:
                 continue
             image = Image(path)
             if self.options.memory_only:
-                if self.pattern_matches(path, patterns):
+                if self.pattern_matches(path, compiled_patterns):
                     image.set_provider(build_memory_provider(path))
                     workspace.add_image(image)
                 continue

@@ -39,7 +39,7 @@ galapix-clean [paths...]
 Global options:
 - `-d`, `--database`: cache root, default `~/.galapix-py`
 - `-t`, `--threads`: worker count for prepare / background jobs
-- `-p`, `--pattern`: shell-style path filter, can be passed multiple times
+- `-p`, `--pattern`: regex path filter, can be passed multiple times
 - `-r`, `--title`: window title
 - `--validate-render`: exit after the first textured frame in a live desktop session
 - `--validation-timeout`: render validation timeout in seconds
