@@ -106,6 +106,60 @@ class GalapixPyCoreTests(unittest.TestCase):
             finally:
                 database.close()
 
+    def test_cleanup_removes_only_selected_cached_images(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            first = make_test_jpeg(base, width=100, height=80)
+            second = base / "sample-2.jpg"
+            pyvips.Image.black(120, 90).bandjoin([32, 96]).jpegsave(str(second), Q=90)
+
+            options = ViewerOptions(database=base / "db")
+            app = GalapixApp(options)
+            app.filegen([str(first), str(second)])
+            app.cleanup([str(first)])
+
+            database = Database(base / "db")
+            try:
+                self.assertIsNone(database.get_file_entry(str(first.resolve())))
+                self.assertIsNotNone(database.get_file_entry(str(second.resolve())))
+            finally:
+                database.close()
+
+    def test_cleanup_accepts_missing_file_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            image_path = make_test_jpeg(base, width=100, height=80)
+
+            options = ViewerOptions(database=base / "db")
+            app = GalapixApp(options)
+            app.filegen([str(image_path)])
+            image_path.unlink()
+            app.cleanup([str(image_path)])
+
+            database = Database(base / "db")
+            try:
+                self.assertIsNone(database.get_file_entry(str(image_path.resolve(strict=False))))
+            finally:
+                database.close()
+
+    def test_cleanup_without_paths_clears_entire_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            first = make_test_jpeg(base, width=100, height=80)
+            second = base / "sample-2.jpg"
+            pyvips.Image.black(120, 90).bandjoin([32, 96]).jpegsave(str(second), Q=90)
+
+            options = ViewerOptions(database=base / "db")
+            app = GalapixApp(options)
+            app.filegen([str(first), str(second)])
+            app.cleanup()
+
+            database = Database(base / "db")
+            try:
+                self.assertEqual(database.list_files(), [])
+            finally:
+                database.close()
+
     def test_prepare_all_tiles_skips_unchanged_cached_images(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
@@ -296,6 +350,13 @@ class GalapixPyCoreTests(unittest.TestCase):
         parser = build_parser()
         args = parser.parse_args(["view"])
         self.assertEqual(args.images_per_row, 10)
+
+    def test_cli_cleanup_accepts_paths(self) -> None:
+        from galapix_py.cli import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["cleanup", "/tmp/a.jpg"])
+        self.assertEqual(args.paths, ["/tmp/a.jpg"])
 
     def test_live_render_validation_waits_for_textured_tiles(self) -> None:
         validation = LiveRenderValidation(timeout=1.0)

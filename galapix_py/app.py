@@ -28,6 +28,25 @@ class GalapixApp:
             elif path.exists():
                 resolved = str(path.resolve())
                 if resolved not in seen:
+                            seen.add(resolved)
+                            results.append(resolved)
+        return results
+
+    def expand_cleanup_paths(self, paths: Iterable[str]) -> list[str]:
+        results: list[str] = []
+        seen: set[str] = set()
+        for raw in paths:
+            path = Path(raw).expanduser()
+            if path.is_dir():
+                for child in sorted(path.rglob("*")):
+                    if child.is_file() and child.suffix.lower() in {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp"}:
+                        resolved = str(child.resolve())
+                        if resolved not in seen:
+                            seen.add(resolved)
+                            results.append(resolved)
+            else:
+                resolved = str(path.resolve(strict=False))
+                if resolved not in seen:
                     seen.add(resolved)
                     results.append(resolved)
         return results
@@ -182,10 +201,16 @@ class GalapixApp:
         finally:
             database.close()
 
-    def cleanup(self) -> None:
+    def cleanup(self, paths: Iterable[str] = ()) -> None:
         database = Database(self.options.database)
         try:
-            database.cleanup()
+            expanded = self.expand_cleanup_paths(paths)
+            if not expanded:
+                database.cleanup()
+                return
+            with database.bulk_writes():
+                for path in expanded:
+                    database.delete_file_by_url(path, commit=False)
         finally:
             database.close()
 

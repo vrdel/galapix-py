@@ -27,7 +27,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("list")
     sub.add_parser("check")
-    sub.add_parser("cleanup")
+    cleanup = sub.add_parser("cleanup")
+    cleanup.add_argument("paths", nargs="*")
     return parser
 
 
@@ -70,7 +71,19 @@ def main() -> None:
     elif args.command == "check":
         app.check()
     elif args.command == "cleanup":
-        app.cleanup()
+        app.cleanup(args.paths)
+
+
+def cleanup_main() -> None:
+    parser = argparse.ArgumentParser(prog="galapix-clean")
+    parser.add_argument("-d", "--database", default=str(Path.home() / ".galapix-py"))
+    parser.add_argument("paths", nargs="*")
+    args = parser.parse_args()
+
+    from .app import GalapixApp
+
+    options = ViewerOptions(database=Path(args.database).expanduser())
+    GalapixApp(options).cleanup(args.paths)
 
 
 if __name__ == "__main__":

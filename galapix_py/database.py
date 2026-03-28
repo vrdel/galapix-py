@@ -55,6 +55,9 @@ class Database:
         self.conn.close()
 
     def cleanup(self) -> None:
+        self.conn.execute("DELETE FROM files")
+        self.conn.execute("DELETE FROM sqlite_sequence WHERE name IN ('files')")
+        self.conn.commit()
         self.conn.execute("VACUUM")
         self.conn.commit()
 
@@ -104,6 +107,12 @@ class Database:
         self.conn.execute("DELETE FROM files WHERE file_id = ?", (file_id,))
         if commit:
             self.conn.commit()
+
+    def delete_file_by_url(self, url: str, commit: bool = True) -> bool:
+        cursor = self.conn.execute("DELETE FROM files WHERE url = ?", (url,))
+        if commit:
+            self.conn.commit()
+        return cursor.rowcount > 0
 
     def store_tiles(self, file_id: int, tiles: Iterable[TileRecord], commit: bool = True) -> None:
         batch: list[tuple[int, int, int, int, int, int, bytes]] = []

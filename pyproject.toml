@@ -17,6 +17,7 @@ dependencies = [
 
 [project.scripts]
 galapix-py = "galapix_py.cli:main"
+galapix-clean = "galapix_py.cli:cleanup_main"
 
 [tool.setuptools]
 package-dir = {"" = "."}
