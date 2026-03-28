@@ -203,12 +203,6 @@ class SDLViewer:
                 self.viewer.clear_all_caches()
             elif sym == sdl2.SDLK_g:
                 self.viewer.toggle_grid()
-            elif sym == sdl2.SDLK_2:
-                self.viewer.workspace.layout_tight(self.viewer.viewport_width, self.viewer.viewport_height)
-                self.viewer.request_redraw()
-            elif sym == sdl2.SDLK_3:
-                self.viewer.workspace.layout_random()
-                self.viewer.request_redraw()
             elif sym == sdl2.SDLK_F1:
                 self.viewer.toggle_status()
             elif sym == sdl2.SDLK_F2:
@@ -217,23 +211,19 @@ class SDLViewer:
                 self.viewer.save_workspace()
             elif sym == sdl2.SDLK_F5:
                 self.viewer.refresh_selection()
-            elif sym == sdl2.SDLK_j:
+            elif sym == sdl2.SDLK_1:
                 shift = bool(event.key.keysym.mod & sdl2.KMOD_SHIFT)
                 self.viewer.workspace.sort_by_url(reverse=shift)
-                self.viewer.workspace.layout_tight(self.viewer.viewport_width, self.viewer.viewport_height)
-                self.viewer.request_redraw()
-            elif sym == sdl2.SDLK_n:
-                self.viewer.workspace.shuffle_images()
-                self.viewer.workspace.layout_tight(self.viewer.viewport_width, self.viewer.viewport_height)
+                self.viewer.workspace.layout_row(max_per_row=self.viewer.options.images_per_row)
                 self.viewer.request_redraw()
             elif sym == sdl2.SDLK_i:
                 self.viewer.workspace.isolate_selection()
-                self.viewer.workspace.layout_tight(self.viewer.viewport_width, self.viewer.viewport_height)
+                self.viewer.workspace.layout_row(max_per_row=self.viewer.options.images_per_row)
                 self.viewer.zoom_to_workspace()
                 self.viewer.request_redraw()
             elif sym == sdl2.SDLK_DELETE:
                 self.viewer.workspace.delete_selection()
-                self.viewer.workspace.layout_tight(self.viewer.viewport_width, self.viewer.viewport_height)
+                self.viewer.workspace.layout_row(max_per_row=self.viewer.options.images_per_row)
                 self.viewer.zoom_to_workspace()
                 self.viewer.request_redraw()
             elif sym == sdl2.SDLK_SPACE:

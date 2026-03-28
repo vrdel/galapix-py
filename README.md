@@ -99,11 +99,8 @@ Selection and editing:
 
 Layout and ordering:
 
-- `2`: tight layout
-- `3`: random layout
-- `j`: sort by URL
-- `Shift+j`: reverse sort by URL
-- `n`: shuffle images
+- `1`: sort by URL and relayout
+- `Shift+1`: reverse sort by URL and relayout
 
 Display and debug:
 

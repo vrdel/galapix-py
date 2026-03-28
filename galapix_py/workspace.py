@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import math
-import random
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -52,9 +51,6 @@ class Workspace:
     def sort_by_url(self, reverse: bool = False) -> None:
         self.images.sort(key=lambda image: image.url, reverse=reverse)
 
-    def shuffle_images(self) -> None:
-        random.shuffle(self.images)
-
     def isolate_selection(self) -> None:
         selected = self.selected_images()
         if not selected:
@@ -96,50 +92,6 @@ class Workspace:
             image.selected = bool(item.get("selected", False))
             self.add_image(image)
         self.animation_progress = 1.0
-
-    def layout_tight(self, aspect_w: float, aspect_h: float) -> None:
-        spacing = 24.0
-        width_sum = 0.0
-        for image in self.images:
-            iw, ih = image.size()
-            scale = (1000.0 + spacing) / max(ih, 1)
-            width_sum += iw * scale
-        target_width = max(1024.0, width_sum / math.sqrt(max(width_sum / ((aspect_w / aspect_h) * (1000.0 + spacing)), 1.0)))
-        x = 0.0
-        y = 0.0
-        last_x = 0.0
-        go_right = True
-        for image in self.images:
-            iw, ih = image.size()
-            scale = 1000.0 / max(ih, 1)
-            scaled_w = iw * scale
-            scaled_h = ih * scale
-            if go_right:
-                if x + scaled_w > target_width:
-                    x = last_x
-                    y += 1000.0 + spacing
-                    go_right = False
-                cx = x + scaled_w / 2.0
-                cy = y + scaled_h / 2.0
-                image.set_target(cx, cy, scale)
-                last_x = x
-                x += scaled_w + spacing
-            else:
-                if x - scaled_w < 0:
-                    y += 1000.0 + spacing
-                    go_right = True
-                    cx = x + scaled_w / 2.0
-                    cy = y + scaled_h / 2.0
-                    image.set_target(cx, cy, scale)
-                    last_x = x
-                    x += scaled_w + spacing
-                else:
-                    x -= scaled_w + spacing
-                    cx = x + scaled_w / 2.0
-                    cy = y + scaled_h / 2.0
-                    image.set_target(cx, cy, scale)
-                    last_x = x
-        self.animation_progress = 0.0
 
     def layout_row(
         self,
@@ -184,16 +136,6 @@ class Workspace:
             x += scaled_w + spacing
             row_height = max(row_height, scaled_h)
         return row_height + spacing
-
-    def layout_random(self) -> None:
-        span = max(1500, int(math.sqrt(max(len(self.images), 1)) * 1500))
-        for image in self.images:
-            image.set_target(
-                random.uniform(0.0, span),
-                random.uniform(0.0, span),
-                random.uniform(0.25, 1.25),
-            )
-        self.animation_progress = 0.0
 
     def bounding_rect(self) -> tuple[float, float, float, float]:
         if not self.images:
