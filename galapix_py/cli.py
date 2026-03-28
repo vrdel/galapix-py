@@ -23,6 +23,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     for name in ("view", "prepare", "selfcheck"):
         cmd = sub.add_parser(name)
+        if name == "view":
+            cmd.add_argument("--show-filenames", action="store_true")
         cmd.add_argument("paths", nargs="*")
 
     sub.add_parser("list")
@@ -51,6 +53,7 @@ def main() -> None:
         height=height,
         fullscreen=args.fullscreen,
         images_per_row=args.images_per_row,
+        show_filenames=getattr(args, "show_filenames", False),
         memory_only=args.memory_only,
         validate_render=args.validate_render,
         validation_timeout=args.validation_timeout,

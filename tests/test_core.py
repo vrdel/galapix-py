@@ -27,7 +27,9 @@ from galapix_py.viewer import (
     GL_TEXTURE_WRAP_S,
     GL_TEXTURE_WRAP_T,
     GL_UNPACK_ALIGNMENT,
+    build_label_rgba,
     configure_texture_upload_state,
+    overlay_label_text,
 )
 from galapix_py.workspace import Workspace
 
@@ -378,6 +380,13 @@ class GalapixPyCoreTests(unittest.TestCase):
         args = parser.parse_args(["--images-per-row", "10", "view"])
         self.assertEqual(args.images_per_row, 10)
 
+    def test_cli_view_accepts_show_filenames(self) -> None:
+        from galapix_py.cli import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["view", "--show-filenames"])
+        self.assertTrue(args.show_filenames)
+
     def test_cli_defaults_images_per_row_to_auto(self) -> None:
         from galapix_py.cli import build_parser
 
@@ -495,6 +504,23 @@ class GalapixPyCoreTests(unittest.TestCase):
             ]
         )
         self.assertEqual(len(tex_parameter.call_args_list), 4)
+
+    def test_overlay_label_text_uses_basename_and_truncates(self) -> None:
+        self.assertEqual(overlay_label_text("/tmp/example.jpg"), "example.jpg")
+        self.assertEqual(
+            overlay_label_text("/tmp/" + ("a" * 60) + ".jpg", max_chars=20),
+            ("a" * 17) + "...",
+        )
+
+    def test_build_label_rgba_creates_white_text_mask(self) -> None:
+        rgba, width, height = build_label_rgba("sample.jpg")
+
+        self.assertEqual(rgba.shape, (height, width, 4))
+        self.assertEqual(rgba.dtype.name, "uint8")
+        self.assertGreater(width, 0)
+        self.assertGreater(height, 0)
+        self.assertEqual(int(rgba[:, :, 3].max()), 255)
+        self.assertEqual(tuple(rgba[:, :, :3].max(axis=(0, 1))), (255, 255, 255))
 
 
 if __name__ == "__main__":

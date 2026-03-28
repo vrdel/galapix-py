@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable
 
 import numpy as np
 import pyvips
 from OpenGL.GL import (
+    GL_BLEND,
     GL_CLAMP_TO_EDGE,
     GL_COLOR_BUFFER_BIT,
     GL_LINEAR,
@@ -27,9 +29,11 @@ from OpenGL.GL import (
     GL_UNPACK_ALIGNMENT,
     glBegin,
     glBindTexture,
+    glBlendFunc,
     glClear,
     glClearColor,
     glColor3f,
+    glColor4f,
     glDeleteTextures,
     glDisable,
     glEnable,
@@ -38,6 +42,8 @@ from OpenGL.GL import (
     glLoadIdentity,
     glMatrixMode,
     glOrtho,
+    GL_ONE_MINUS_SRC_ALPHA,
+    GL_SRC_ALPHA,
     glTexCoord2f,
     glTexImage2D,
     glTexParameteri,
@@ -134,6 +140,31 @@ class FrameRenderStats:
     placeholder_tiles: int = 0
 
 
+@dataclass(slots=True)
+class LabelTexture:
+    texture_id: int
+    width: int
+    height: int
+
+
+def overlay_label_text(path: str, max_chars: int = 48) -> str:
+    name = Path(path).name or path
+    if len(name) <= max_chars:
+        return name
+    return f"{name[:max_chars - 3]}..."
+
+
+def build_label_rgba(text: str, padding_x: int = 6, padding_y: int = 4) -> tuple[np.ndarray, int, int]:
+    mask = pyvips.Image.text(text, dpi=110)
+    alpha = np.frombuffer(mask.write_to_memory(), dtype=np.uint8).reshape(mask.height, mask.width)
+    width = mask.width + padding_x * 2
+    height = mask.height + padding_y * 2
+    rgba = np.zeros((height, width, 4), dtype=np.uint8)
+    rgba[padding_y:padding_y + mask.height, padding_x:padding_x + mask.width, :3] = 255
+    rgba[padding_y:padding_y + mask.height, padding_x:padding_x + mask.width, 3] = alpha
+    return rgba, width, height
+
+
 class Viewer:
     def __init__(
         self,
@@ -148,6 +179,7 @@ class Viewer:
         self.provider_factory = provider_factory
         self.state = ViewerState()
         self.texture_cache = TextureCache()
+        self.label_textures: dict[str, LabelTexture] = {}
         self.background_colors = [
             (0.39, 0.39, 0.39, 1.0),
             (0.25, 0.25, 0.25, 1.0),
@@ -240,6 +272,8 @@ class Viewer:
         glClear(GL_COLOR_BUFFER_BIT)
         glLoadIdentity()
         glEnable(GL_TEXTURE_2D)
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         if self.show_grid:
             self._draw_grid()
         clip = self.state.world_rect(self.viewport_width, self.viewport_height)
@@ -294,6 +328,9 @@ class Viewer:
                 image.cache.clear()
             image.visible = False
         self.texture_cache.clear()
+        if self.label_textures:
+            glDeleteTextures([label.texture_id for label in self.label_textures.values()])
+            self.label_textures.clear()
         self.request_redraw()
 
     def print_visible_images(self) -> None:
@@ -312,6 +349,29 @@ class Viewer:
         print(f"  offset: ({self.state.offset_x:.1f}, {self.state.offset_y:.1f})")
         print(f"  textures: {len(self.texture_cache.textures)}")
 
+    def _get_label_texture(self, text: str) -> LabelTexture:
+        label = self.label_textures.get(text)
+        if label is not None:
+            return label
+        texture = int(glGenTextures(1))
+        glBindTexture(GL_TEXTURE_2D, texture)
+        configure_texture_upload_state()
+        rgba, width, height = build_label_rgba(text)
+        glTexImage2D(
+            GL_TEXTURE_2D,
+            0,
+            GL_RGBA,
+            width,
+            height,
+            0,
+            GL_RGBA,
+            GL_UNSIGNED_BYTE,
+            rgba,
+        )
+        label = LabelTexture(texture, width, height)
+        self.label_textures[text] = label
+        return label
+
     def _draw_solid_rect(self, left: float, top: float, right: float, bottom: float, color: tuple[float, float, float]) -> None:
         glDisable(GL_TEXTURE_2D)
         glColor3f(*color)
@@ -322,6 +382,27 @@ class Viewer:
         glVertex2f(left, bottom)
         glEnd()
         glEnable(GL_TEXTURE_2D)
+        glColor3f(1.0, 1.0, 1.0)
+
+    def _draw_filename_overlay(self, image: Image) -> None:
+        left, top, right, _ = image.rect()
+        screen_left, screen_top = self.world_to_screen(left, top)
+        screen_right, _ = self.world_to_screen(right, top)
+        available_width = screen_right - screen_left
+        if available_width < 40.0:
+            return
+        label = self._get_label_texture(overlay_label_text(image.url))
+        inset = 4.0
+        label_left = screen_left + inset
+        label_top = screen_top + inset
+        label_right = min(screen_right - inset, label_left + label.width)
+        if label_right <= label_left:
+            return
+        label_bottom = label_top + label.height
+        self._draw_solid_rect(label_left, label_top, label_right, label_bottom, (0.0, 0.0, 0.0))
+        u1 = (label_right - label_left) / label.width
+        glColor4f(1.0, 1.0, 1.0, 1.0)
+        self._draw_textured_rect(label.texture_id, label_left, label_top, label_right, label_bottom, 0.0, 0.0, u1, 1.0)
         glColor3f(1.0, 1.0, 1.0)
 
     def _draw_textured_rect(
@@ -521,3 +602,5 @@ class Viewer:
             left, top = self.world_to_screen(img_left, img_top)
             right, bottom = self.world_to_screen(img_right, img_bottom)
             self._draw_outline(left, top, right, bottom, (1.0, 1.0, 1.0))
+        if self.options.show_filenames:
+            self._draw_filename_overlay(image)
