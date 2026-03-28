@@ -21,8 +21,12 @@ class GalapixApp:
     def apply_initial_sort(self, workspace) -> None:
         if self.options.sort == "name":
             workspace.sort_by_name()
+        elif self.options.sort == "name-reverse":
+            workspace.sort_by_name(reverse=True)
         elif self.options.sort == "mtime":
             workspace.sort_by_mtime()
+        elif self.options.sort == "mtime-reverse":
+            workspace.sort_by_mtime(reverse=True)
 
     def expand_paths(self, paths: Iterable[str]) -> list[str]:
         results: list[str] = []

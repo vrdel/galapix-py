@@ -308,6 +308,36 @@ class GalapixPyCoreTests(unittest.TestCase):
                 ["a-first.jpg", "z-last.jpg"],
             )
 
+    def test_view_sort_name_reverse_orders_initial_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            first = base / "z-last.jpg"
+            second = base / "a-first.jpg"
+            pyvips.Image.black(120, 80).bandjoin([64, 128]).jpegsave(str(first), Q=90)
+            pyvips.Image.black(120, 80).bandjoin([64, 128]).jpegsave(str(second), Q=90)
+
+            options = ViewerOptions(database=base / "db", sort="name-reverse")
+            app = GalapixApp(options)
+
+            class StopViewer(Exception):
+                pass
+
+            captured = {}
+
+            def fake_run(self) -> None:
+                captured["workspace"] = self.viewer.workspace
+                raise StopViewer()
+
+            with patch("galapix_py.sdl_viewer.SDLViewer.run", new=fake_run):
+                with self.assertRaises(StopViewer):
+                    app.view([str(first), str(second)])
+
+            workspace = captured["workspace"]
+            self.assertEqual(
+                [Path(image.url).name for image in workspace.images],
+                ["z-last.jpg", "a-first.jpg"],
+            )
+
     def test_workspace_save_load_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
@@ -490,6 +520,13 @@ class GalapixPyCoreTests(unittest.TestCase):
         parser = build_parser()
         args = parser.parse_args(["view", "--sort", "mtime"])
         self.assertEqual(args.sort, "mtime")
+
+    def test_cli_accepts_view_reverse_sort(self) -> None:
+        from galapix_py.cli import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["view", "--sort", "mtime-reverse"])
+        self.assertEqual(args.sort, "mtime-reverse")
 
     def test_cli_accepts_spacing_multiplier(self) -> None:
         from galapix_py.cli import build_parser
