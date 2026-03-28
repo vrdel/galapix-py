@@ -66,18 +66,6 @@ make wheel-devel
 
 The wheel is written to `dist/`.
 
-To build the Rust offline prepare tool from the repo root:
-
-```bash
-make rust-prepare
-```
-
-The resulting binary is:
-
-```text
-galapix-prepare-rs/target/release/galapix-prepare-rs
-```
-
 For a non-GUI smoke test of the core pipeline:
 
 ```bash
