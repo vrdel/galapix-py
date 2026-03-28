@@ -23,6 +23,7 @@ def build_parser() -> argparse.ArgumentParser:
             cmd.add_argument("-g", "--geometry", default="1280x720")
             cmd.add_argument("-f", "--fullscreen", action="store_true")
             cmd.add_argument("--images-per-row", type=int, default=None)
+            cmd.add_argument("--spacing", type=int, default=1)
             cmd.add_argument("--memory-only", action="store_true")
             cmd.add_argument("--show-filenames", action="store_true")
         cmd.add_argument("paths", nargs="*")
@@ -54,6 +55,7 @@ def main() -> None:
         height=height,
         fullscreen=getattr(args, "fullscreen", False),
         images_per_row=getattr(args, "images_per_row", None),
+        spacing=max(1, getattr(args, "spacing", 1)),
         show_filenames=getattr(args, "show_filenames", False),
         memory_only=getattr(args, "memory_only", False),
         validate_render=args.validate_render,

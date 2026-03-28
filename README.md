@@ -35,6 +35,10 @@ galapix-py cleanup
 
 `view` also accepts saved workspace files ending in `.galapix`.
 
+`view`-only layout options:
+- `--images-per-row N`: wrap after `N` images
+- `--spacing N`: row spacing multiplier, where `1` means the default gap, `2` doubles it, and so on
+
 ## Install
 
 ```bash

@@ -52,6 +52,7 @@ class ViewerOptions:
     height: int = 720
     fullscreen: bool = False
     images_per_row: int | None = None
+    spacing: int = 1
     show_filenames: bool = False
     memory_only: bool = False
     validate_render: bool = False

@@ -320,6 +320,23 @@ class GalapixPyCoreTests(unittest.TestCase):
             0.0,
         )
 
+    def test_workspace_layout_row_spacing_changes_gap(self) -> None:
+        workspace = Workspace()
+        for index in range(2):
+            image = Image(f"/tmp/{index}.jpg")
+            image.set_absolute(0.0, 0.0, 1.0)
+            workspace.add_image(image)
+
+        workspace.layout_row(spacing=40.0)
+        workspace.update(1.0)
+        base_gap = workspace.images[1].placement.x - workspace.images[0].placement.x
+
+        workspace.layout_row(spacing=80.0)
+        workspace.update(1.0)
+        wider_gap = workspace.images[1].placement.x - workspace.images[0].placement.x
+
+        self.assertGreater(wider_gap, base_gap)
+
     def test_workspace_sort_by_mtime_orders_oldest_first(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
@@ -401,6 +418,13 @@ class GalapixPyCoreTests(unittest.TestCase):
         args = parser.parse_args(["view", "--images-per-row", "10"])
         self.assertEqual(args.images_per_row, 10)
 
+    def test_cli_accepts_spacing_multiplier(self) -> None:
+        from galapix_py.cli import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["view", "--spacing", "3"])
+        self.assertEqual(args.spacing, 3)
+
     def test_cli_view_accepts_show_filenames(self) -> None:
         from galapix_py.cli import build_parser
 
@@ -414,6 +438,7 @@ class GalapixPyCoreTests(unittest.TestCase):
         parser = build_parser()
         args = parser.parse_args(["view"])
         self.assertIsNone(args.images_per_row)
+        self.assertEqual(args.spacing, 1)
 
     def test_cli_view_accepts_view_only_flags(self) -> None:
         from galapix_py.cli import build_parser

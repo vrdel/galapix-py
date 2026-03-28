@@ -105,7 +105,7 @@ class Workspace:
 
     def layout_row(
         self,
-        spacing: float = 24.0,
+        spacing: float = 40.0,
         target_height: float = 1000.0,
         max_per_row: int | None = None,
     ) -> None:

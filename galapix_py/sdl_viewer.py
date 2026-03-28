@@ -212,21 +212,33 @@ class SDLViewer:
             elif sym == sdl2.SDLK_1:
                 shift = bool(event.key.keysym.mod & sdl2.KMOD_SHIFT)
                 self.viewer.workspace.sort_by_url(reverse=shift)
-                self.viewer.workspace.layout_row(max_per_row=self.viewer.options.images_per_row)
+                self.viewer.workspace.layout_row(
+                    spacing=40.0 * max(1, self.viewer.options.spacing),
+                    max_per_row=self.viewer.options.images_per_row,
+                )
                 self.viewer.request_redraw()
             elif sym == sdl2.SDLK_2:
                 shift = bool(event.key.keysym.mod & sdl2.KMOD_SHIFT)
                 self.viewer.workspace.sort_by_mtime(reverse=shift)
-                self.viewer.workspace.layout_row(max_per_row=self.viewer.options.images_per_row)
+                self.viewer.workspace.layout_row(
+                    spacing=40.0 * max(1, self.viewer.options.spacing),
+                    max_per_row=self.viewer.options.images_per_row,
+                )
                 self.viewer.request_redraw()
             elif sym == sdl2.SDLK_i:
                 self.viewer.workspace.isolate_selection()
-                self.viewer.workspace.layout_row(max_per_row=self.viewer.options.images_per_row)
+                self.viewer.workspace.layout_row(
+                    spacing=40.0 * max(1, self.viewer.options.spacing),
+                    max_per_row=self.viewer.options.images_per_row,
+                )
                 self.viewer.zoom_to_workspace()
                 self.viewer.request_redraw()
             elif sym == sdl2.SDLK_DELETE:
                 self.viewer.workspace.delete_selection()
-                self.viewer.workspace.layout_row(max_per_row=self.viewer.options.images_per_row)
+                self.viewer.workspace.layout_row(
+                    spacing=40.0 * max(1, self.viewer.options.spacing),
+                    max_per_row=self.viewer.options.images_per_row,
+                )
                 self.viewer.zoom_to_workspace()
                 self.viewer.request_redraw()
             elif sym == sdl2.SDLK_SPACE:

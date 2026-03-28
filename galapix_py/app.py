@@ -14,6 +14,9 @@ class GalapixApp:
     def __init__(self, options: ViewerOptions) -> None:
         self.options = options
 
+    def row_spacing(self) -> float:
+        return 40.0 * max(1, self.options.spacing)
+
     def expand_paths(self, paths: Iterable[str]) -> list[str]:
         results: list[str] = []
         seen: set[str] = set()
@@ -118,7 +121,7 @@ class GalapixApp:
                     image.set_provider(DatabaseTileProvider(db_thread, resolve_database_entry(image.url)))
 
         if not loaded_workspace:
-            workspace.layout_row(max_per_row=self.options.images_per_row)
+            workspace.layout_row(spacing=self.row_spacing(), max_per_row=self.options.images_per_row)
             workspace.update(1.0)
 
         try:
