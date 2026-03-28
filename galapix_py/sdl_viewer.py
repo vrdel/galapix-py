@@ -201,8 +201,6 @@ class SDLViewer:
                 self.viewer.cycle_background(backwards=shift)
             elif sym == sdl2.SDLK_c:
                 self.viewer.clear_all_caches()
-            elif sym == sdl2.SDLK_g:
-                self.viewer.toggle_grid()
             elif sym == sdl2.SDLK_F1:
                 self.viewer.toggle_status()
             elif sym == sdl2.SDLK_F2:

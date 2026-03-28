@@ -106,7 +106,6 @@ Display and debug:
 
 - `b`: cycle background color forward
 - `Shift+b`: cycle background color backward
-- `g`: toggle grid
 - `F1`: toggle status overlay in the window title
 - `c`: clear CPU tile caches and OpenGL textures
 - `Space`: print visible image URLs to the terminal
@@ -136,7 +135,6 @@ Quit:
   - selection
   - selection-aware zoom
   - workspace save/load
-  - grid overlay
   - background cycling
   - title-based status overlay
 - Not implemented yet:

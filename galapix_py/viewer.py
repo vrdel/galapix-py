@@ -222,8 +222,6 @@ class Viewer:
         self.viewport_width = options.width
         self.viewport_height = options.height
         self.show_status = True
-        self.show_grid = False
-        self.grid_size = 400.0
         self.last_frame_stats = FrameRenderStats()
 
     def world_to_screen(self, x: float, y: float) -> tuple[float, float]:
@@ -294,8 +292,6 @@ class Viewer:
         glEnable(GL_TEXTURE_2D)
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-        if self.show_grid:
-            self._draw_grid()
         clip = self.state.world_rect(self.viewport_width, self.viewport_height)
         for image in self.workspace.images:
             if not image.overlaps(clip):
@@ -323,10 +319,6 @@ class Viewer:
             self.background_index = (self.background_index - 1) % len(self.background_colors)
         else:
             self.background_index = (self.background_index + 1) % len(self.background_colors)
-        self.request_redraw()
-
-    def toggle_grid(self) -> None:
-        self.show_grid = not self.show_grid
         self.request_redraw()
 
     def status_text(self) -> str:
@@ -451,37 +443,6 @@ class Viewer:
         glVertex2f(right, top)
         glVertex2f(right, bottom)
         glVertex2f(left, bottom)
-        glEnd()
-        glEnable(GL_TEXTURE_2D)
-        glColor3f(1.0, 1.0, 1.0)
-
-    def _draw_grid(self) -> None:
-        left, top, right, bottom = self.state.world_rect(self.viewport_width, self.viewport_height)
-        start_x = math.floor(left / self.grid_size) * self.grid_size
-        end_x = math.ceil(right / self.grid_size) * self.grid_size
-        start_y = math.floor(top / self.grid_size) * self.grid_size
-        end_y = math.ceil(bottom / self.grid_size) * self.grid_size
-
-        glDisable(GL_TEXTURE_2D)
-        glColor3f(0.35, 0.15, 0.15)
-        glBegin(GL_LINES)
-
-        x = start_x
-        while x <= end_x:
-            sx0, sy0 = self.world_to_screen(x, top)
-            sx1, sy1 = self.world_to_screen(x, bottom)
-            glVertex2f(sx0, sy0)
-            glVertex2f(sx1, sy1)
-            x += self.grid_size
-
-        y = start_y
-        while y <= end_y:
-            sx0, sy0 = self.world_to_screen(left, y)
-            sx1, sy1 = self.world_to_screen(right, y)
-            glVertex2f(sx0, sy0)
-            glVertex2f(sx1, sy1)
-            y += self.grid_size
-
         glEnd()
         glEnable(GL_TEXTURE_2D)
         glColor3f(1.0, 1.0, 1.0)
