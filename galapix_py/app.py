@@ -138,18 +138,7 @@ class GalapixApp:
             if database is not None:
                 database.close()
 
-    def filegen(self, paths: Iterable[str]) -> None:
-        from .tiling import probe_file_entry
-
-        database = Database(self.options.database)
-        try:
-            for path in self.expand_paths(paths):
-                entry = probe_file_entry(path)
-                database.store_file_entry(entry)
-        finally:
-            database.close()
-
-    def thumbgen(self, paths: Iterable[str], all_tiles: bool = False) -> None:
+    def prepare(self, paths: Iterable[str]) -> None:
         from .tiling import generate_tiles_for_entry, probe_file_entry
 
         database = Database(self.options.database)
@@ -170,7 +159,7 @@ class GalapixApp:
                         if entry is not None and entry.file_id is not None:
                             database.delete_file_entry(entry.file_id, commit=False)
                         entry = database.store_file_entry(fresh, commit=False)
-                    min_scale = 0 if all_tiles else max(0, entry.thumbnail_scale - 3)
+                    min_scale = 0
                     max_scale = entry.thumbnail_scale
                     cached_min, cached_max = database.get_min_max_scale(entry.file_id)
                     if is_current and cached_min is not None and cached_max is not None:
@@ -232,7 +221,7 @@ class GalapixApp:
                     stored_entries.append(entry)
 
                 listed = database.list_files()
-                assert len(listed) == len(stored_entries), "file count mismatch after filegen stage"
+                assert len(listed) == len(stored_entries), "file count mismatch after metadata stage"
 
                 for entry in stored_entries:
                     min_scale = max(0, entry.thumbnail_scale - 1)

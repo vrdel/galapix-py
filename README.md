@@ -27,8 +27,6 @@ GalapixApp
 ```bash
 galapix-py view <paths...>
 galapix-py prepare <paths...>
-galapix-py thumbgen <paths...>
-galapix-py filegen <paths...>
 galapix-py selfcheck <paths...>
 galapix-py list
 galapix-py check

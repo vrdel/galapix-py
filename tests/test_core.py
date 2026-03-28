@@ -115,7 +115,7 @@ class GalapixPyCoreTests(unittest.TestCase):
 
             options = ViewerOptions(database=base / "db")
             app = GalapixApp(options)
-            app.filegen([str(first), str(second)])
+            app.prepare([str(first), str(second)])
             app.cleanup([str(first)])
 
             database = Database(base / "db")
@@ -132,7 +132,7 @@ class GalapixPyCoreTests(unittest.TestCase):
 
             options = ViewerOptions(database=base / "db")
             app = GalapixApp(options)
-            app.filegen([str(image_path)])
+            app.prepare([str(image_path)])
             image_path.unlink()
             app.cleanup([str(image_path)])
 
@@ -151,7 +151,7 @@ class GalapixPyCoreTests(unittest.TestCase):
 
             options = ViewerOptions(database=base / "db")
             app = GalapixApp(options)
-            app.filegen([str(first), str(second)])
+            app.prepare([str(first), str(second)])
             app.cleanup()
 
             database = Database(base / "db")
@@ -167,10 +167,10 @@ class GalapixPyCoreTests(unittest.TestCase):
             options = ViewerOptions(database=base / "db")
             app = GalapixApp(options)
 
-            app.thumbgen([str(image_path)], all_tiles=True)
+            app.prepare([str(image_path)])
 
             with patch("galapix_py.tiling.generate_tiles_for_entry", side_effect=AssertionError("should skip unchanged image")):
-                app.thumbgen([str(image_path)], all_tiles=True)
+                app.prepare([str(image_path)])
 
     def test_prepare_all_tiles_regenerates_changed_images(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -179,13 +179,13 @@ class GalapixPyCoreTests(unittest.TestCase):
             options = ViewerOptions(database=base / "db")
             app = GalapixApp(options)
 
-            app.thumbgen([str(image_path)], all_tiles=True)
+            app.prepare([str(image_path)])
             time.sleep(0.01)
             pyvips.Image.black(400, 200).bandjoin([16, 200]).jpegsave(str(image_path), Q=90)
 
             original = generate_tiles_for_entry
             with patch("galapix_py.tiling.generate_tiles_for_entry", wraps=original) as wrapped:
-                app.thumbgen([str(image_path)], all_tiles=True)
+                app.prepare([str(image_path)])
             self.assertTrue(wrapped.called)
 
     def test_prepare_all_tiles_rebuilds_when_cached_entry_dimensions_are_stale(self) -> None:
@@ -195,7 +195,7 @@ class GalapixPyCoreTests(unittest.TestCase):
             options = ViewerOptions(database=base / "db")
             app = GalapixApp(options)
 
-            app.thumbgen([str(image_path)], all_tiles=True)
+            app.prepare([str(image_path)])
 
             database = Database(base / "db")
             try:
@@ -216,7 +216,7 @@ class GalapixPyCoreTests(unittest.TestCase):
 
             original = generate_tiles_for_entry
             with patch("galapix_py.tiling.generate_tiles_for_entry", wraps=original) as wrapped:
-                app.thumbgen([str(image_path)], all_tiles=True)
+                app.prepare([str(image_path)])
             self.assertTrue(wrapped.called)
 
     def test_view_uncached_files_are_stored_before_layout(self) -> None:

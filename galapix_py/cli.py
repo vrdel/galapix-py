@@ -21,7 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub = parser.add_subparsers(dest="command", required=True)
 
-    for name in ("view", "prepare", "thumbgen", "filegen", "selfcheck"):
+    for name in ("view", "prepare", "selfcheck"):
         cmd = sub.add_parser(name)
         cmd.add_argument("paths", nargs="*")
 
@@ -59,11 +59,7 @@ def main() -> None:
     if args.command == "view":
         app.view(args.paths, patterns=args.pattern)
     elif args.command == "prepare":
-        app.thumbgen(args.paths, all_tiles=True)
-    elif args.command == "thumbgen":
-        app.thumbgen(args.paths, all_tiles=False)
-    elif args.command == "filegen":
-        app.filegen(args.paths)
+        app.prepare(args.paths)
     elif args.command == "selfcheck":
         app.selfcheck(args.paths)
     elif args.command == "list":
