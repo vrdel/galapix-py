@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import concurrent.futures
 import fnmatch
 import tempfile
 from pathlib import Path
@@ -141,35 +142,72 @@ class GalapixApp:
     def prepare(self, paths: Iterable[str]) -> None:
         from .tiling import generate_tiles_for_entry, probe_file_entry
 
+        def prepare_one(path: str, cached_entry, cached_min: int | None, cached_max: int | None):
+            fresh = probe_file_entry(path)
+            is_current = (
+                cached_entry is not None
+                and cached_entry.mtime_ns == fresh.mtime_ns
+                and cached_entry.size_bytes == fresh.size_bytes
+                and cached_entry.width == fresh.width
+                and cached_entry.height == fresh.height
+                and cached_entry.image_format == fresh.image_format
+            )
+            is_complete = (
+                is_current
+                and cached_min is not None
+                and cached_max is not None
+                and cached_min <= 0
+                and cached_max >= fresh.thumbnail_scale
+            )
+            if is_complete:
+                return path, fresh, True, []
+            tiles = list(generate_tiles_for_entry(fresh, 0, fresh.thumbnail_scale))
+            return path, fresh, False, tiles
+
         database = Database(self.options.database)
         try:
+            expanded = self.expand_paths(paths)
+            if not expanded:
+                return
+
+            worker_count = max(1, self.options.threads)
             with database.bulk_writes():
-                for path in self.expand_paths(paths):
-                    entry = database.get_file_entry(path)
-                    fresh = probe_file_entry(path)
-                    is_current = (
-                        entry is not None
-                        and entry.mtime_ns == fresh.mtime_ns
-                        and entry.size_bytes == fresh.size_bytes
-                        and entry.width == fresh.width
-                        and entry.height == fresh.height
-                        and entry.image_format == fresh.image_format
-                    )
-                    if not is_current:
-                        if entry is not None and entry.file_id is not None:
-                            database.delete_file_entry(entry.file_id, commit=False)
-                        entry = database.store_file_entry(fresh, commit=False)
-                    min_scale = 0
-                    max_scale = entry.thumbnail_scale
-                    cached_min, cached_max = database.get_min_max_scale(entry.file_id)
-                    if is_current and cached_min is not None and cached_max is not None:
-                        if cached_min <= min_scale and cached_max >= max_scale:
-                            continue
-                    database.store_tiles(
-                        entry.file_id,
-                        generate_tiles_for_entry(entry, min_scale, max_scale),
-                        commit=False,
-                    )
+                with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
+                    pending: dict[concurrent.futures.Future, tuple[str, object | None]] = {}
+                    path_iter = iter(expanded)
+
+                    def submit_next() -> bool:
+                        try:
+                            path = next(path_iter)
+                        except StopIteration:
+                            return False
+                        cached_entry = database.get_file_entry(path)
+                        cached_min = cached_max = None
+                        if cached_entry is not None and cached_entry.file_id is not None:
+                            cached_min, cached_max = database.get_min_max_scale(cached_entry.file_id)
+                        pending[executor.submit(prepare_one, path, cached_entry, cached_min, cached_max)] = (path, cached_entry)
+                        return True
+
+                    for _ in range(worker_count):
+                        if not submit_next():
+                            break
+
+                    while pending:
+                        done, _ = concurrent.futures.wait(
+                            pending.keys(),
+                            return_when=concurrent.futures.FIRST_COMPLETED,
+                        )
+                        for future in done:
+                            path, cached_entry = pending.pop(future)
+                            _, fresh, should_skip, tiles = future.result()
+                            if should_skip:
+                                submit_next()
+                                continue
+                            if cached_entry is not None and cached_entry.file_id is not None:
+                                database.delete_file_entry(cached_entry.file_id, commit=False)
+                            stored_entry = database.store_file_entry(fresh, commit=False)
+                            database.store_tiles(stored_entry.file_id, tiles, commit=False)
+                            submit_next()
         finally:
             database.close()
 
