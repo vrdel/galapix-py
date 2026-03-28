@@ -24,20 +24,41 @@ GalapixApp
 
 ## Commands
 
+Main entrypoints:
+
 ```bash
-galapix-py view <paths...>
+galapix-py view [options] <paths...>
 galapix-py prepare <paths...>
 galapix-py selfcheck <paths...>
 galapix-py list
 galapix-py check
-galapix-py cleanup
+galapix-py cleanup [paths...]
+galapix-clean [paths...]
 ```
 
-`view` also accepts saved workspace files ending in `.galapix`.
+Global options:
+- `-d`, `--database`: cache root, default `~/.galapix-py`
+- `-t`, `--threads`: worker count for prepare / background jobs
+- `-p`, `--pattern`: shell-style path filter, can be passed multiple times
+- `-r`, `--title`: window title
+- `--validate-render`: exit after the first textured frame in a live desktop session
+- `--validation-timeout`: render validation timeout in seconds
 
-`view`-only layout options:
-- `--images-per-row N`: wrap after `N` images
-- `--spacing N`: row spacing multiplier, where `1` means the default gap, `2` doubles it, and so on
+`view` options:
+- `-g`, `--geometry WxH`: initial window size
+- `-f`, `--fullscreen`: start fullscreen
+- `--sort {name,name-reverse,mtime,mtime-reverse}`: startup ordering for direct image views
+- `--images-per-row N`: wrap after `N` images; default is auto-wrap into a square-ish grid
+- `--spacing N`: row spacing multiplier, where `1` is the default gap
+- `--memory-only`: bypass the SQLite tile cache and generate tiles in memory
+- `--show-filenames`: draw filename labels above visible images
+
+Notes:
+- `view` accepts image paths, directories, and saved workspace files ending in `.galapix`
+- `prepare` builds the full tile pyramid into the SQLite cache
+- `cleanup` / `galapix-clean` remove the whole cache if no paths are provided, or only matching cached images if paths/directories are provided
+- `list` prints cached image URLs
+- `check` reports whether cached file entries still match files on disk
 
 ## Install
 
@@ -78,6 +99,18 @@ first textured frame:
 
 ```bash
 .uv-venv/bin/python -m galapix_py.cli --validate-render view /path/to/image.jpg
+```
+
+Typical prepare run:
+
+```bash
+.uv-venv/bin/python -m galapix_py.cli prepare /path/to/images
+```
+
+Typical view run:
+
+```bash
+.uv-venv/bin/python -m galapix_py.cli view --sort name --show-filenames /path/to/images
 ```
 
 ## Viewer Controls
@@ -129,7 +162,8 @@ Quit:
 ## Notes
 
 - Tiles are stored as JPEG blobs in SQLite.
-- The implemented core is the main `view` and tile generation pipeline plus offline cache generation.
+- Cached tile JPEG quality is `Q=85` with metadata stripped.
+- `prepare` now prints a summary including discovered files, skipped files, prepared files, stored tile count, and elapsed time.
 - The renderer supports:
   - exact tile rendering
   - higher-resolution child-tile fallback
@@ -138,11 +172,16 @@ Quit:
   - scale-aware cache pruning
   - cancellable in-flight tile requests
 - The viewer supports:
+  - startup sorting by file name or mtime
+  - centered multi-row initial layouts
+  - configurable row spacing and row limits
   - selection
   - selection-aware zoom
   - workspace save/load
   - background cycling
   - title-based status overlay
+  - optional filename labels above images
+  - live render validation mode
 - Not implemented yet:
   - Zoomify provider
   - Mandelbrot / synthetic providers
