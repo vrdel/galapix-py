@@ -147,6 +147,10 @@ class Workspace:
         target_height: float = 1000.0,
         max_per_row: int | None = None,
     ) -> None:
+        if max_per_row is None:
+            image_count = len(self.images)
+            if image_count > 2:
+                max_per_row = math.ceil(math.sqrt(image_count))
         y = 0.0
         row_images: list[tuple[Image, float, float]] = []
         for index, image in enumerate(self.images):

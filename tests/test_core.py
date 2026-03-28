@@ -316,6 +316,40 @@ class GalapixPyCoreTests(unittest.TestCase):
             0.0,
         )
 
+    def test_workspace_layout_row_auto_wraps_nine_images_to_three_per_row(self) -> None:
+        workspace = Workspace()
+        for index in range(9):
+            image = Image(f"/tmp/{index}.jpg")
+            image.set_absolute(0.0, 0.0, 1.0)
+            workspace.add_image(image)
+
+        workspace.layout_row()
+        workspace.update(1.0)
+
+        first_row = workspace.images[:3]
+        second_row = workspace.images[3:6]
+        third_row = workspace.images[6:9]
+        self.assertTrue(all(image.placement.y == first_row[0].placement.y for image in first_row))
+        self.assertTrue(all(image.placement.y == second_row[0].placement.y for image in second_row))
+        self.assertTrue(all(image.placement.y == third_row[0].placement.y for image in third_row))
+        self.assertLess(first_row[0].placement.y, second_row[0].placement.y)
+        self.assertLess(second_row[0].placement.y, third_row[0].placement.y)
+
+    def test_workspace_layout_row_auto_wraps_twenty_five_images_to_five_per_row(self) -> None:
+        workspace = Workspace()
+        for index in range(25):
+            image = Image(f"/tmp/{index}.jpg")
+            image.set_absolute(0.0, 0.0, 1.0)
+            workspace.add_image(image)
+
+        workspace.layout_row()
+        workspace.update(1.0)
+
+        self.assertAlmostEqual(workspace.images[0].placement.y, workspace.images[4].placement.y)
+        self.assertAlmostEqual(workspace.images[5].placement.y, workspace.images[9].placement.y)
+        self.assertLess(workspace.images[0].placement.y, workspace.images[5].placement.y)
+        self.assertLess(workspace.images[5].placement.y, workspace.images[10].placement.y)
+
     def test_app_selfcheck(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
@@ -344,12 +378,12 @@ class GalapixPyCoreTests(unittest.TestCase):
         args = parser.parse_args(["--images-per-row", "10", "view"])
         self.assertEqual(args.images_per_row, 10)
 
-    def test_cli_defaults_images_per_row_to_ten(self) -> None:
+    def test_cli_defaults_images_per_row_to_auto(self) -> None:
         from galapix_py.cli import build_parser
 
         parser = build_parser()
         args = parser.parse_args(["view"])
-        self.assertEqual(args.images_per_row, 10)
+        self.assertIsNone(args.images_per_row)
 
     def test_cli_cleanup_accepts_paths(self) -> None:
         from galapix_py.cli import build_parser
