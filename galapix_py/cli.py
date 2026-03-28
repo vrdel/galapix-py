@@ -10,12 +10,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="galapix-py")
     parser.add_argument("-d", "--database", default=str(Path.home() / ".galapix-py"))
     parser.add_argument("-t", "--threads", type=int, default=4)
-    parser.add_argument("-g", "--geometry", default="1280x720")
-    parser.add_argument("-f", "--fullscreen", action="store_true")
-    parser.add_argument("--images-per-row", type=int, default=None)
     parser.add_argument("-p", "--pattern", action="append", default=[])
     parser.add_argument("-r", "--title", default="galapix-py")
-    parser.add_argument("--memory-only", action="store_true")
     parser.add_argument("--validate-render", action="store_true")
     parser.add_argument("--validation-timeout", type=float, default=5.0)
 
@@ -24,6 +20,10 @@ def build_parser() -> argparse.ArgumentParser:
     for name in ("view", "prepare", "selfcheck"):
         cmd = sub.add_parser(name)
         if name == "view":
+            cmd.add_argument("-g", "--geometry", default="1280x720")
+            cmd.add_argument("-f", "--fullscreen", action="store_true")
+            cmd.add_argument("--images-per-row", type=int, default=None)
+            cmd.add_argument("--memory-only", action="store_true")
             cmd.add_argument("--show-filenames", action="store_true")
         cmd.add_argument("paths", nargs="*")
 
@@ -42,7 +42,8 @@ def parse_geometry(text: str) -> tuple[int, int]:
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
-    width, height = parse_geometry(args.geometry)
+    geometry = getattr(args, "geometry", "1280x720")
+    width, height = parse_geometry(geometry)
     from .app import GalapixApp
 
     options = ViewerOptions(
@@ -51,10 +52,10 @@ def main() -> None:
         title=args.title,
         width=width,
         height=height,
-        fullscreen=args.fullscreen,
-        images_per_row=args.images_per_row,
+        fullscreen=getattr(args, "fullscreen", False),
+        images_per_row=getattr(args, "images_per_row", None),
         show_filenames=getattr(args, "show_filenames", False),
-        memory_only=args.memory_only,
+        memory_only=getattr(args, "memory_only", False),
         validate_render=args.validate_render,
         validation_timeout=args.validation_timeout,
     )

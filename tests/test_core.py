@@ -378,7 +378,7 @@ class GalapixPyCoreTests(unittest.TestCase):
         from galapix_py.cli import build_parser
 
         parser = build_parser()
-        args = parser.parse_args(["--images-per-row", "10", "view"])
+        args = parser.parse_args(["view", "--images-per-row", "10"])
         self.assertEqual(args.images_per_row, 10)
 
     def test_cli_view_accepts_show_filenames(self) -> None:
@@ -394,6 +394,30 @@ class GalapixPyCoreTests(unittest.TestCase):
         parser = build_parser()
         args = parser.parse_args(["view"])
         self.assertIsNone(args.images_per_row)
+
+    def test_cli_view_accepts_view_only_flags(self) -> None:
+        from galapix_py.cli import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(
+            [
+                "view",
+                "--geometry",
+                "1920x1080",
+                "--fullscreen",
+                "--memory-only",
+            ]
+        )
+        self.assertEqual(args.geometry, "1920x1080")
+        self.assertTrue(args.fullscreen)
+        self.assertTrue(args.memory_only)
+
+    def test_cli_prepare_rejects_view_only_flags(self) -> None:
+        from galapix_py.cli import build_parser
+
+        parser = build_parser()
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["prepare", "--fullscreen"])
 
     def test_cli_cleanup_accepts_paths(self) -> None:
         from galapix_py.cli import build_parser
