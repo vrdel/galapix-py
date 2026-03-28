@@ -11,6 +11,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-d", "--database", default=str(Path.home() / ".galapix-py"))
     parser.add_argument("-t", "--threads", type=int, default=4)
     parser.add_argument("-p", "--pattern", action="append", default=[])
+    parser.add_argument("--ignore-pattern-case", action="store_true")
     parser.add_argument("-r", "--title", default="galapix-py")
     parser.add_argument("--validate-render", action="store_true")
     parser.add_argument("--validation-timeout", type=float, default=5.0)
@@ -69,6 +70,7 @@ def main() -> None:
         database=Path(args.database).expanduser(),
         threads=args.threads,
         jpeg_quality=max(1, min(100, getattr(args, "jpeg_quality", 85))),
+        ignore_pattern_case=args.ignore_pattern_case,
         title=args.title,
         width=width,
         height=height,

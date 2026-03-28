@@ -352,6 +352,31 @@ class GalapixPyCoreTests(unittest.TestCase):
                 ["z-last.jpg", "a-first.jpg"],
             )
 
+    def test_view_pattern_can_ignore_case(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            image_path = base / "MixedCase.jpg"
+            pyvips.Image.black(120, 80).bandjoin([64, 128]).jpegsave(str(image_path), Q=90)
+
+            options = ViewerOptions(database=base / "db", ignore_pattern_case=True, memory_only=True)
+            app = GalapixApp(options)
+
+            class StopViewer(Exception):
+                pass
+
+            captured = {}
+
+            def fake_run(self) -> None:
+                captured["workspace"] = self.viewer.workspace
+                raise StopViewer()
+
+            with patch("galapix_py.sdl_viewer.SDLViewer.run", new=fake_run):
+                with self.assertRaises(StopViewer):
+                    app.view([str(image_path)], patterns=["*.JPG"])
+
+            workspace = captured["workspace"]
+            self.assertEqual([Path(image.url).name for image in workspace.images], ["MixedCase.jpg"])
+
     def test_workspace_save_load_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
@@ -541,6 +566,13 @@ class GalapixPyCoreTests(unittest.TestCase):
         parser = build_parser()
         args = parser.parse_args(["view", "--sort", "mtime-reverse"])
         self.assertEqual(args.sort, "mtime-reverse")
+
+    def test_cli_accepts_ignore_pattern_case(self) -> None:
+        from galapix_py.cli import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["--ignore-pattern-case", "view"])
+        self.assertTrue(args.ignore_pattern_case)
 
     def test_cli_accepts_spacing_multiplier(self) -> None:
         from galapix_py.cli import build_parser

@@ -48,6 +48,7 @@ class ViewerOptions:
     database: Path
     threads: int = 4
     jpeg_quality: int = 85
+    ignore_pattern_case: bool = False
     title: str = "galapix-py"
     width: int = 1280
     height: int = 720
