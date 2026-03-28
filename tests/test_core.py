@@ -464,6 +464,26 @@ class GalapixPyCoreTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             parser.parse_args(["prepare", "--fullscreen"])
 
+    def test_cli_main_swallows_keyboard_interrupt(self) -> None:
+        from galapix_py import cli
+
+        with (
+            patch("sys.argv", ["galapix-py", "list"]),
+            patch("galapix_py.app.GalapixApp") as app_class,
+        ):
+            app_class.return_value.list_files.side_effect = KeyboardInterrupt()
+            cli.main()
+
+    def test_cleanup_main_swallows_keyboard_interrupt(self) -> None:
+        from galapix_py import cli
+
+        with (
+            patch("sys.argv", ["galapix-clean"]),
+            patch("galapix_py.app.GalapixApp") as app_class,
+        ):
+            app_class.return_value.cleanup.side_effect = KeyboardInterrupt()
+            cli.cleanup_main()
+
     def test_cli_cleanup_accepts_paths(self) -> None:
         from galapix_py.cli import build_parser
 

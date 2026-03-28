@@ -40,6 +40,21 @@ def parse_geometry(text: str) -> tuple[int, int]:
     return int(width), int(height)
 
 
+def _run_command(app, args) -> None:
+    if args.command == "view":
+        app.view(args.paths, patterns=args.pattern)
+    elif args.command == "prepare":
+        app.prepare(args.paths)
+    elif args.command == "selfcheck":
+        app.selfcheck(args.paths)
+    elif args.command == "list":
+        app.list_files()
+    elif args.command == "check":
+        app.check()
+    elif args.command == "cleanup":
+        app.cleanup(args.paths)
+
+
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
@@ -62,18 +77,10 @@ def main() -> None:
         validation_timeout=args.validation_timeout,
     )
     app = GalapixApp(options)
-    if args.command == "view":
-        app.view(args.paths, patterns=args.pattern)
-    elif args.command == "prepare":
-        app.prepare(args.paths)
-    elif args.command == "selfcheck":
-        app.selfcheck(args.paths)
-    elif args.command == "list":
-        app.list_files()
-    elif args.command == "check":
-        app.check()
-    elif args.command == "cleanup":
-        app.cleanup(args.paths)
+    try:
+        _run_command(app, args)
+    except KeyboardInterrupt:
+        return
 
 
 def cleanup_main() -> None:
@@ -85,7 +92,10 @@ def cleanup_main() -> None:
     from .app import GalapixApp
 
     options = ViewerOptions(database=Path(args.database).expanduser())
-    GalapixApp(options).cleanup(args.paths)
+    try:
+        GalapixApp(options).cleanup(args.paths)
+    except KeyboardInterrupt:
+        return
 
 
 if __name__ == "__main__":
