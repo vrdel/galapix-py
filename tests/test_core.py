@@ -17,7 +17,7 @@ from galapix_py.image import Image, ImageTileCache
 from galapix_py.jobs import JobManager
 from galapix_py.models import TileRecord, ViewerOptions
 from galapix_py.providers import InMemoryTileProvider
-from galapix_py.sdl_viewer import LiveRenderValidation, configure_app_identity_hint, set_x11_window_class
+from galapix_py.sdl_viewer import LiveRenderValidation, SDLViewer, configure_app_identity_hint, set_x11_window_class
 from galapix_py.tiling import generate_tiles_for_entry, probe_file_entry
 from galapix_py.viewer import (
     FrameRenderStats,
@@ -882,6 +882,37 @@ class GalapixPyCoreTests(unittest.TestCase):
         self.assertEqual(state.scale, state.target_scale)
         self.assertEqual(state.offset_x, state.target_offset_x)
         self.assertEqual(state.offset_y, state.target_offset_y)
+
+    def test_mouse_wheel_zoom_uses_larger_step_with_ctrl(self) -> None:
+        zoom_calls: list[tuple[float, int, int]] = []
+
+        class DummyState:
+            def zoom(self, factor: float, x: int, y: int) -> None:
+                zoom_calls.append((factor, x, y))
+
+        class DummyViewer:
+            def __init__(self) -> None:
+                self.state = DummyState()
+                self.redraw_requested = False
+
+            def request_redraw(self) -> None:
+                self.redraw_requested = True
+
+        viewer = DummyViewer()
+        sdl_viewer = SDLViewer(viewer)
+        event = type("Event", (), {})()
+        event.type = 0
+        event.wheel = type("Wheel", (), {"y": 1})()
+
+        with (
+            patch("galapix_py.sdl_viewer.sdl2.SDL_MOUSEWHEEL", 0),
+            patch("galapix_py.sdl_viewer.sdl2.SDL_GetMouseState", side_effect=lambda x, y: (setattr(x, "value", 120), setattr(y, "value", 80))),
+            patch.object(SDLViewer, "_ctrl_pressed", return_value=True),
+        ):
+            sdl_viewer._process_event(event)
+
+        self.assertEqual(zoom_calls, [(1.25, 120, 80)])
+        self.assertTrue(viewer.redraw_requested)
 
     def test_configure_texture_upload_state_sets_alignment_and_clamp(self) -> None:
         with (

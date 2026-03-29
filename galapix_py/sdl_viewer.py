@@ -94,12 +94,16 @@ class SDLViewer:
         self.mouse_down_pos: tuple[int, int] | None = None
         self._last_title: str | None = None
 
+    def _ctrl_pressed(self) -> bool:
+        mods = sdl2.SDL_GetModState()
+        return bool(mods & sdl2.KMOD_CTRL)
+
     def run(self) -> None:
         configure_app_identity_hint()
         sdl2.SDL_Init(sdl2.SDL_INIT_VIDEO)
         sdl2.SDL_GL_SetAttribute(sdl2.SDL_GL_CONTEXT_MAJOR_VERSION, 2)
         sdl2.SDL_GL_SetAttribute(sdl2.SDL_GL_CONTEXT_MINOR_VERSION, 1)
-        flags = sdl2.SDL_WINDOW_OPENGL | sdl2.SDL_WINDOW_RESIZABLE
+        flags = sdl2.SDL_WINDOW_OPENGL | sdl2.SDL_WINDOW_RESIZABLE | sdl2.SDL_WINDOW_HIDDEN
         if self.fullscreen:
             flags |= sdl2.SDL_WINDOW_FULLSCREEN_DESKTOP
         self.window = sdl2.SDL_CreateWindow(
@@ -116,6 +120,7 @@ class SDLViewer:
         self.context = sdl2.SDL_GL_CreateContext(self.window)
         if not self.context:
             raise RuntimeError(f"SDL_GL_CreateContext failed: {sdl2.SDL_GetError().decode()}")
+        sdl2.SDL_ShowWindow(self.window)
         self.viewer.set_viewport(self.viewer.options.width, self.viewer.options.height)
         self.viewer.zoom_to_workspace()
         self.running = True
@@ -164,7 +169,7 @@ class SDLViewer:
             scancode = sdl2.SDL_GetScancodeFromKey(key)
             return bool(keystate[scancode])
 
-        ctrl = pressed(sdl2.SDLK_LCTRL) or pressed(sdl2.SDLK_RCTRL)
+        ctrl = self._ctrl_pressed()
         alt = pressed(sdl2.SDLK_LALT) or pressed(sdl2.SDLK_RALT)
         shift = pressed(sdl2.SDLK_LSHIFT) or pressed(sdl2.SDLK_RSHIFT)
         if alt or shift:
@@ -202,7 +207,8 @@ class SDLViewer:
         elif event.type == sdl2.SDL_MOUSEWHEEL:
             mouse_x, mouse_y = ctypes.c_int(), ctypes.c_int()
             sdl2.SDL_GetMouseState(mouse_x, mouse_y)
-            factor = 1.1 if event.wheel.y > 0 else (1.0 / 1.1)
+            wheel_zoom_factor = 1.25 if self._ctrl_pressed() else 1.1
+            factor = wheel_zoom_factor if event.wheel.y > 0 else (1.0 / wheel_zoom_factor)
             self.viewer.state.zoom(factor, mouse_x.value, mouse_y.value)
             self.viewer.request_redraw()
         elif event.type == sdl2.SDL_MOUSEBUTTONDOWN:
