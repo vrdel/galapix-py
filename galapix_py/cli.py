@@ -26,6 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
             cmd.add_argument("--sort", choices=("name", "name-reverse", "mtime", "mtime-reverse"))
             cmd.add_argument("--images-per-row", type=int, default=None)
             cmd.add_argument("--spacing", type=int, default=1)
+            cmd.add_argument("--background-color", type=parse_background_color, default=None)
             cmd.add_argument("--memory-only", action="store_true")
             cmd.add_argument("--show-filenames", action="store_true")
         elif name == "prepare":
@@ -42,6 +43,21 @@ def build_parser() -> argparse.ArgumentParser:
 def parse_geometry(text: str) -> tuple[int, int]:
     width, height = text.lower().split("x", 1)
     return int(width), int(height)
+
+
+def parse_background_color(text: str) -> tuple[float, float, float, float]:
+    value = text.strip()
+    if value.startswith("#"):
+        value = value[1:]
+    if len(value) != 6:
+        raise argparse.ArgumentTypeError("background color must be a 6-digit hex color like #263238")
+    try:
+        red = int(value[0:2], 16)
+        green = int(value[2:4], 16)
+        blue = int(value[4:6], 16)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("background color must be a valid hexadecimal color") from exc
+    return red / 255.0, green / 255.0, blue / 255.0, 1.0
 
 
 def _run_command(app, args) -> None:
@@ -78,6 +94,7 @@ def main() -> None:
         sort=getattr(args, "sort", None),
         images_per_row=getattr(args, "images_per_row", None),
         spacing=max(1, getattr(args, "spacing", 1)),
+        background_color=getattr(args, "background_color", None),
         show_filenames=getattr(args, "show_filenames", False),
         memory_only=getattr(args, "memory_only", False),
         validate_render=args.validate_render,

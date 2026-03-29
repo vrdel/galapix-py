@@ -21,6 +21,7 @@ from galapix_py.sdl_viewer import LiveRenderValidation, SDLViewer, configure_app
 from galapix_py.tiling import generate_tiles_for_entry, probe_file_entry
 from galapix_py.viewer import (
     FrameRenderStats,
+    Viewer,
     GL_CLAMP_TO_EDGE,
     GL_LINEAR,
     GL_TEXTURE_2D,
@@ -30,6 +31,7 @@ from galapix_py.viewer import (
     GL_TEXTURE_WRAP_T,
     GL_UNPACK_ALIGNMENT,
     build_label_rgba,
+    brighten_rgb,
     configure_texture_upload_state,
     filename_overlay_rect,
     overlay_label_text,
@@ -627,6 +629,13 @@ class GalapixPyCoreTests(unittest.TestCase):
         args = parser.parse_args(["view", "--spacing", "3"])
         self.assertEqual(args.spacing, 3)
 
+    def test_cli_accepts_background_color(self) -> None:
+        from galapix_py.cli import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["view", "--background-color", "#263238"])
+        self.assertEqual(args.background_color, (0x26 / 255.0, 0x32 / 255.0, 0x38 / 255.0, 1.0))
+
     def test_cli_view_accepts_show_filenames(self) -> None:
         from galapix_py.cli import build_parser
 
@@ -672,6 +681,12 @@ class GalapixPyCoreTests(unittest.TestCase):
         parser = build_parser()
         args = parser.parse_args(["prepare", "--jpeg-quality", "72"])
         self.assertEqual(args.jpeg_quality, 72)
+
+    def test_parse_background_color_rejects_invalid_hex(self) -> None:
+        from galapix_py.cli import parse_background_color
+
+        with self.assertRaises(Exception):
+            parse_background_color("#12345")
 
     def test_cli_main_swallows_keyboard_interrupt(self) -> None:
         from galapix_py import cli
@@ -1110,6 +1125,22 @@ class GalapixPyCoreTests(unittest.TestCase):
             ]
         )
         self.assertEqual(len(tex_parameter.call_args_list), 4)
+
+    def test_viewer_uses_configured_background_color_override(self) -> None:
+        options = ViewerOptions(database=Path("/tmp/db"), background_color=(0.1, 0.2, 0.3, 1.0))
+        viewer = Viewer(options, Workspace(), None)
+        self.assertEqual(viewer.background_colors, [(0.1, 0.2, 0.3, 1.0)])
+
+    def test_brighten_rgb_lifts_background_by_four_levels(self) -> None:
+        self.assertEqual(
+            brighten_rgb((0.1, 0.2, 0.3, 1.0)),
+            (0.35, 0.45, 0.55),
+        )
+
+    def test_viewer_selection_outline_color_tracks_background(self) -> None:
+        options = ViewerOptions(database=Path("/tmp/db"), background_color=(0.2, 0.3, 0.4, 1.0))
+        viewer = Viewer(options, Workspace(), None)
+        self.assertEqual(viewer.selection_outline_color(), (0.45, 0.55, 0.65))
 
     def test_overlay_label_text_uses_basename_and_truncates(self) -> None:
         self.assertEqual(overlay_label_text("/tmp/example.jpg"), "example.jpg")

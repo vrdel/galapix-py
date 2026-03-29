@@ -184,6 +184,15 @@ def filename_overlay_rect(
     return label_left, label_top, label_right, label_top + label_height
 
 
+def brighten_rgb(
+    color: tuple[float, float, float, float],
+    levels: int = 4,
+    step: float = 1.0 / 16.0,
+) -> tuple[float, float, float]:
+    lift = levels * step
+    return tuple(min(1.0, channel + lift) for channel in color[:3])
+
+
 class Viewer:
     def __init__(
         self,
@@ -217,6 +226,8 @@ class Viewer:
             (0.00, 0.50, 0.50, 1.0),
             (0.00, 0.00, 0.50, 1.0),
         ]
+        if options.background_color is not None:
+            self.background_colors = [options.background_color]
         self.background_index = 0
         self.needs_redraw = True
         self.viewport_width = options.width
@@ -309,6 +320,9 @@ class Viewer:
 
     def request_redraw(self) -> None:
         self.needs_redraw = True
+
+    def selection_outline_color(self) -> tuple[float, float, float]:
+        return brighten_rgb(self.background_colors[self.background_index], levels=4)
 
     def toggle_status(self) -> None:
         self.show_status = not self.show_status
@@ -462,7 +476,7 @@ class Viewer:
             self._draw_solid_rect(left, top, right, bottom, (0.55, 0.45, 0.10))
             stats.placeholder_tiles += 1
             if image.selected:
-                self._draw_outline(left, top, right, bottom, (1.0, 1.0, 1.0))
+                self._draw_outline(left, top, right, bottom, self.selection_outline_color())
             if not image.file_entry_requested:
                 image.file_entry_requested = True
 
@@ -576,6 +590,6 @@ class Viewer:
         if image.selected:
             left, top = self.world_to_screen(img_left, img_top)
             right, bottom = self.world_to_screen(img_right, img_bottom)
-            self._draw_outline(left, top, right, bottom, (1.0, 1.0, 1.0))
+            self._draw_outline(left, top, right, bottom, self.selection_outline_color())
         if self.options.show_filenames:
             self._draw_filename_overlay(image)
