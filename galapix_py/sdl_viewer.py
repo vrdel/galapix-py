@@ -1,12 +1,46 @@
 from __future__ import annotations
 
 import ctypes
+import ctypes.util
 import time
 from dataclasses import dataclass
 
 import sdl2
 
 from .viewer import FrameRenderStats, Viewer
+
+APP_ID = b"galapix-py"
+
+
+class XClassHint(ctypes.Structure):
+    _fields_ = [
+        ("res_name", ctypes.c_char_p),
+        ("res_class", ctypes.c_char_p),
+    ]
+
+
+def configure_app_identity_hint(app_id: bytes = APP_ID) -> None:
+    sdl2.SDL_SetHint(b"SDL_APP_NAME", app_id)
+
+
+def set_x11_window_class(window: object, app_id: bytes = APP_ID) -> None:
+    x11_library = ctypes.util.find_library("X11")
+    if not x11_library:
+        return
+    wm_info = sdl2.SDL_SysWMinfo()
+    sdl2.SDL_VERSION(wm_info.version)
+    if not sdl2.SDL_GetWindowWMInfo(window, ctypes.byref(wm_info)):
+        return
+    if wm_info.subsystem != sdl2.SDL_SYSWM_X11:
+        return
+    x11 = ctypes.CDLL(x11_library)
+    x11.XSetClassHint.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(XClassHint)]
+    x11.XSetClassHint.restype = ctypes.c_int
+    x11.XFlush.argtypes = [ctypes.c_void_p]
+    x11.XFlush.restype = ctypes.c_int
+    hint = XClassHint(res_name=app_id, res_class=app_id)
+    if x11.XSetClassHint(wm_info.info.x11.display, wm_info.info.x11.window, ctypes.byref(hint)):
+        x11.XFlush(wm_info.info.x11.display)
 
 
 @dataclass(slots=True)
@@ -61,6 +95,7 @@ class SDLViewer:
         self._last_title: str | None = None
 
     def run(self) -> None:
+        configure_app_identity_hint()
         sdl2.SDL_Init(sdl2.SDL_INIT_VIDEO)
         sdl2.SDL_GL_SetAttribute(sdl2.SDL_GL_CONTEXT_MAJOR_VERSION, 2)
         sdl2.SDL_GL_SetAttribute(sdl2.SDL_GL_CONTEXT_MINOR_VERSION, 1)
@@ -77,6 +112,7 @@ class SDLViewer:
         )
         if not self.window:
             raise RuntimeError(f"SDL_CreateWindow failed: {sdl2.SDL_GetError().decode()}")
+        set_x11_window_class(self.window)
         self.context = sdl2.SDL_GL_CreateContext(self.window)
         if not self.context:
             raise RuntimeError(f"SDL_GL_CreateContext failed: {sdl2.SDL_GetError().decode()}")

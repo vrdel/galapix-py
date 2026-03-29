@@ -17,7 +17,7 @@ from galapix_py.image import Image, ImageTileCache
 from galapix_py.jobs import JobManager
 from galapix_py.models import TileRecord, ViewerOptions
 from galapix_py.providers import InMemoryTileProvider
-from galapix_py.sdl_viewer import LiveRenderValidation
+from galapix_py.sdl_viewer import LiveRenderValidation, configure_app_identity_hint, set_x11_window_class
 from galapix_py.tiling import generate_tiles_for_entry, probe_file_entry
 from galapix_py.viewer import (
     FrameRenderStats,
@@ -717,6 +717,55 @@ class GalapixPyCoreTests(unittest.TestCase):
         success, message = validation.observe(0.5, FrameRenderStats(visible_images=1, placeholder_tiles=3))
         self.assertFalse(success)
         self.assertIn("timed out", message)
+
+    def test_configure_app_identity_hint_sets_galapix_app_name(self) -> None:
+        with patch("galapix_py.sdl_viewer.sdl2.SDL_SetHint") as set_hint:
+            configure_app_identity_hint()
+
+        set_hint.assert_called_once_with(b"SDL_APP_NAME", b"galapix-py")
+
+    def test_set_x11_window_class_sets_name_and_class_to_galapix(self) -> None:
+        class FakeX11:
+            def __init__(self) -> None:
+                self.hint = None
+                self.display = None
+
+                def set_class_hint(display, window, hint_ptr):
+                    hint = hint_ptr._obj
+                    self.display = display
+                    self.window = window
+                    self.hint = (hint.res_name, hint.res_class)
+                    return 1
+
+                def flush(display):
+                    self.flushed = display
+                    return 0
+
+                self.XSetClassHint = set_class_hint
+                self.XFlush = flush
+
+        fake_x11 = FakeX11()
+
+        def fill_wm_info(window, wm_info_ptr) -> int:
+            wm_info = wm_info_ptr._obj
+            wm_info.subsystem = 2
+            wm_info.info.x11.display = 123
+            wm_info.info.x11.window = 456
+            return 1
+
+        with (
+            patch("galapix_py.sdl_viewer.ctypes.util.find_library", return_value="libX11.so"),
+            patch("galapix_py.sdl_viewer.ctypes.CDLL", return_value=fake_x11),
+            patch("galapix_py.sdl_viewer.sdl2.SDL_GetWindowWMInfo", side_effect=fill_wm_info),
+            patch("galapix_py.sdl_viewer.sdl2.SDL_VERSION"),
+            patch("galapix_py.sdl_viewer.sdl2.SDL_SYSWM_X11", 2),
+        ):
+            set_x11_window_class(object())
+
+        self.assertEqual(fake_x11.display, 123)
+        self.assertEqual(fake_x11.window, 456)
+        self.assertEqual(fake_x11.hint, (b"galapix-py", b"galapix-py"))
+        self.assertEqual(fake_x11.flushed, 123)
 
     def test_in_memory_tile_provider_generates_tile_without_database_cache(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
