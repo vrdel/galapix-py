@@ -98,6 +98,24 @@ class SDLViewer:
         mods = sdl2.SDL_GetModState()
         return bool(mods & sdl2.KMOD_CTRL)
 
+    def _shift_pressed(self) -> bool:
+        mods = sdl2.SDL_GetModState()
+        return bool(mods & sdl2.KMOD_SHIFT)
+
+    def _wheel_zoom_factor(self) -> float:
+        if self._shift_pressed():
+            return 1.5
+        if self._ctrl_pressed():
+            return 1.25
+        return 1.1
+
+    def _drag_pan_factor(self) -> float:
+        if self._shift_pressed():
+            return 3.0
+        if self._ctrl_pressed():
+            return 2.0
+        return 1.0
+
     def run(self) -> None:
         configure_app_identity_hint()
         sdl2.SDL_Init(sdl2.SDL_INIT_VIDEO)
@@ -207,7 +225,7 @@ class SDLViewer:
         elif event.type == sdl2.SDL_MOUSEWHEEL:
             mouse_x, mouse_y = ctypes.c_int(), ctypes.c_int()
             sdl2.SDL_GetMouseState(mouse_x, mouse_y)
-            wheel_zoom_factor = 1.25 if self._ctrl_pressed() else 1.1
+            wheel_zoom_factor = self._wheel_zoom_factor()
             factor = wheel_zoom_factor if event.wheel.y > 0 else (1.0 / wheel_zoom_factor)
             self.viewer.state.zoom(factor, mouse_x.value, mouse_y.value)
             self.viewer.request_redraw()
@@ -216,7 +234,7 @@ class SDLViewer:
                 self.mouse_down_pos = (event.button.x, event.button.y)
         elif event.type == sdl2.SDL_MOUSEMOTION:
             if event.motion.state & sdl2.SDL_BUTTON_LMASK:
-                drag_pan_factor = 2.0 if self._ctrl_pressed() else 1.0
+                drag_pan_factor = self._drag_pan_factor()
                 self.viewer.state.move(event.motion.xrel * drag_pan_factor, event.motion.yrel * drag_pan_factor)
                 self.viewer.request_redraw()
         elif event.type == sdl2.SDL_MOUSEBUTTONUP:

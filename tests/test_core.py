@@ -914,6 +914,38 @@ class GalapixPyCoreTests(unittest.TestCase):
         self.assertEqual(zoom_calls, [(1.25, 120, 80)])
         self.assertTrue(viewer.redraw_requested)
 
+    def test_mouse_wheel_zoom_uses_largest_step_with_shift(self) -> None:
+        zoom_calls: list[tuple[float, int, int]] = []
+
+        class DummyState:
+            def zoom(self, factor: float, x: int, y: int) -> None:
+                zoom_calls.append((factor, x, y))
+
+        class DummyViewer:
+            def __init__(self) -> None:
+                self.state = DummyState()
+                self.redraw_requested = False
+
+            def request_redraw(self) -> None:
+                self.redraw_requested = True
+
+        viewer = DummyViewer()
+        sdl_viewer = SDLViewer(viewer)
+        event = type("Event", (), {})()
+        event.type = 0
+        event.wheel = type("Wheel", (), {"y": 1})()
+
+        with (
+            patch("galapix_py.sdl_viewer.sdl2.SDL_MOUSEWHEEL", 0),
+            patch("galapix_py.sdl_viewer.sdl2.SDL_GetMouseState", side_effect=lambda x, y: (setattr(x, "value", 120), setattr(y, "value", 80))),
+            patch.object(SDLViewer, "_shift_pressed", return_value=True),
+            patch.object(SDLViewer, "_ctrl_pressed", return_value=False),
+        ):
+            sdl_viewer._process_event(event)
+
+        self.assertEqual(zoom_calls, [(1.5, 120, 80)])
+        self.assertTrue(viewer.redraw_requested)
+
     def test_mouse_drag_pan_uses_larger_step_with_ctrl(self) -> None:
         move_calls: list[tuple[float, float]] = []
 
@@ -943,6 +975,38 @@ class GalapixPyCoreTests(unittest.TestCase):
             sdl_viewer._process_event(event)
 
         self.assertEqual(move_calls, [(24.0, -16.0)])
+        self.assertTrue(viewer.redraw_requested)
+
+    def test_mouse_drag_pan_uses_largest_step_with_shift(self) -> None:
+        move_calls: list[tuple[float, float]] = []
+
+        class DummyState:
+            def move(self, x: float, y: float) -> None:
+                move_calls.append((x, y))
+
+        class DummyViewer:
+            def __init__(self) -> None:
+                self.state = DummyState()
+                self.redraw_requested = False
+
+            def request_redraw(self) -> None:
+                self.redraw_requested = True
+
+        viewer = DummyViewer()
+        sdl_viewer = SDLViewer(viewer)
+        event = type("Event", (), {})()
+        event.type = 0
+        event.motion = type("Motion", (), {"state": 1, "xrel": 12, "yrel": -8})()
+
+        with (
+            patch("galapix_py.sdl_viewer.sdl2.SDL_MOUSEMOTION", 0),
+            patch("galapix_py.sdl_viewer.sdl2.SDL_BUTTON_LMASK", 1),
+            patch.object(SDLViewer, "_shift_pressed", return_value=True),
+            patch.object(SDLViewer, "_ctrl_pressed", return_value=False),
+        ):
+            sdl_viewer._process_event(event)
+
+        self.assertEqual(move_calls, [(36.0, -24.0)])
         self.assertTrue(viewer.redraw_requested)
 
     def test_configure_texture_upload_state_sets_alignment_and_clamp(self) -> None:
