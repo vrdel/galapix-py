@@ -188,13 +188,13 @@ class SDLViewer:
             return bool(keystate[scancode])
 
         ctrl = self._ctrl_pressed()
+        shift = self._shift_pressed()
         alt = pressed(sdl2.SDLK_LALT) or pressed(sdl2.SDLK_RALT)
-        shift = pressed(sdl2.SDLK_LSHIFT) or pressed(sdl2.SDLK_RSHIFT)
-        if alt or shift:
+        if alt:
             return
 
-        pan_step = 32.0 if ctrl else 16.0
-        zoom_factor = 1.15 if ctrl else 1.05
+        pan_step = 48.0 if shift else (32.0 if ctrl else 16.0)
+        zoom_factor = 1.3 if shift else (1.15 if ctrl else 1.05)
         moved = False
 
         if pressed(sdl2.SDLK_LEFT):

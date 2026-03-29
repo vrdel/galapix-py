@@ -1009,6 +1009,90 @@ class GalapixPyCoreTests(unittest.TestCase):
         self.assertEqual(move_calls, [(36.0, -24.0)])
         self.assertTrue(viewer.redraw_requested)
 
+    def test_keyboard_zoom_uses_largest_step_with_shift(self) -> None:
+        zoom_calls: list[tuple[float, float, float]] = []
+
+        class DummyState:
+            def zoom(self, factor: float, x: float, y: float) -> None:
+                zoom_calls.append((factor, x, y))
+
+        class DummyViewer:
+            def __init__(self) -> None:
+                self.state = DummyState()
+                self.viewport_width = 400
+                self.viewport_height = 300
+                self.redraw_requested = False
+
+            def request_redraw(self) -> None:
+                self.redraw_requested = True
+
+        viewer = DummyViewer()
+        sdl_viewer = SDLViewer(viewer)
+
+        class FakeKeyState:
+            def __getitem__(self, scancode: int) -> int:
+                return 1 if scancode == 1 else 0
+
+        with (
+            patch("galapix_py.sdl_viewer.sdl2.SDL_GetKeyboardState", return_value=FakeKeyState()),
+            patch("galapix_py.sdl_viewer.sdl2.SDL_GetScancodeFromKey", side_effect=lambda key: 1 if key == 119 else 0),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_w", 119),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_s", 115),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_LEFT", 276),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_RIGHT", 275),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_UP", 273),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_DOWN", 274),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_LALT", 308),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_RALT", 307),
+            patch.object(SDLViewer, "_shift_pressed", return_value=True),
+            patch.object(SDLViewer, "_ctrl_pressed", return_value=False),
+        ):
+            sdl_viewer._process_keyboard_state()
+
+        self.assertEqual(zoom_calls, [(1.3, 200.0, 150.0)])
+        self.assertTrue(viewer.redraw_requested)
+
+    def test_keyboard_pan_uses_largest_step_with_shift(self) -> None:
+        move_calls: list[tuple[float, float]] = []
+
+        class DummyState:
+            def move(self, x: float, y: float) -> None:
+                move_calls.append((x, y))
+
+        class DummyViewer:
+            def __init__(self) -> None:
+                self.state = DummyState()
+                self.redraw_requested = False
+
+            def request_redraw(self) -> None:
+                self.redraw_requested = True
+
+        viewer = DummyViewer()
+        sdl_viewer = SDLViewer(viewer)
+
+        class FakeKeyState:
+            def __getitem__(self, scancode: int) -> int:
+                return 1 if scancode == 1 else 0
+
+        with (
+            patch("galapix_py.sdl_viewer.sdl2.SDL_GetKeyboardState", return_value=FakeKeyState()),
+            patch("galapix_py.sdl_viewer.sdl2.SDL_GetScancodeFromKey", side_effect=lambda key: 1 if key == 276 else 0),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_LEFT", 276),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_RIGHT", 275),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_UP", 273),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_DOWN", 274),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_w", 119),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_s", 115),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_LALT", 308),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_RALT", 307),
+            patch.object(SDLViewer, "_shift_pressed", return_value=True),
+            patch.object(SDLViewer, "_ctrl_pressed", return_value=False),
+        ):
+            sdl_viewer._process_keyboard_state()
+
+        self.assertEqual(move_calls, [(48.0, 0.0)])
+        self.assertTrue(viewer.redraw_requested)
+
     def test_configure_texture_upload_state_sets_alignment_and_clamp(self) -> None:
         with (
             patch("galapix_py.viewer.glPixelStorei") as pixel_store,
