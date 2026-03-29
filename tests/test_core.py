@@ -914,6 +914,37 @@ class GalapixPyCoreTests(unittest.TestCase):
         self.assertEqual(zoom_calls, [(1.25, 120, 80)])
         self.assertTrue(viewer.redraw_requested)
 
+    def test_mouse_drag_pan_uses_larger_step_with_ctrl(self) -> None:
+        move_calls: list[tuple[float, float]] = []
+
+        class DummyState:
+            def move(self, x: float, y: float) -> None:
+                move_calls.append((x, y))
+
+        class DummyViewer:
+            def __init__(self) -> None:
+                self.state = DummyState()
+                self.redraw_requested = False
+
+            def request_redraw(self) -> None:
+                self.redraw_requested = True
+
+        viewer = DummyViewer()
+        sdl_viewer = SDLViewer(viewer)
+        event = type("Event", (), {})()
+        event.type = 0
+        event.motion = type("Motion", (), {"state": 1, "xrel": 12, "yrel": -8})()
+
+        with (
+            patch("galapix_py.sdl_viewer.sdl2.SDL_MOUSEMOTION", 0),
+            patch("galapix_py.sdl_viewer.sdl2.SDL_BUTTON_LMASK", 1),
+            patch.object(SDLViewer, "_ctrl_pressed", return_value=True),
+        ):
+            sdl_viewer._process_event(event)
+
+        self.assertEqual(move_calls, [(24.0, -16.0)])
+        self.assertTrue(viewer.redraw_requested)
+
     def test_configure_texture_upload_state_sets_alignment_and_clamp(self) -> None:
         with (
             patch("galapix_py.viewer.glPixelStorei") as pixel_store,
