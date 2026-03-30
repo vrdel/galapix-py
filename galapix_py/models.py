@@ -57,6 +57,7 @@ class ViewerOptions:
     images_per_row: int | None = None
     spacing: int = 1
     background_color: tuple[float, float, float, float] | None = None
+    selection_border_color: tuple[float, float, float, float] | None = None
     show_filenames: bool = False
     memory_only: bool = False
     validate_render: bool = False

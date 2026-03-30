@@ -27,6 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
             cmd.add_argument("--images-per-row", type=int, default=None)
             cmd.add_argument("--spacing", type=int, default=1)
             cmd.add_argument("--background-color", type=parse_background_color, default=None)
+            cmd.add_argument("--selection-border-color", type=parse_background_color, default=None)
             cmd.add_argument("--memory-only", action="store_true")
             cmd.add_argument("--show-filenames", action="store_true")
         elif name == "prepare":
@@ -95,6 +96,7 @@ def main() -> None:
         images_per_row=getattr(args, "images_per_row", None),
         spacing=max(1, getattr(args, "spacing", 1)),
         background_color=getattr(args, "background_color", None),
+        selection_border_color=getattr(args, "selection_border_color", None),
         show_filenames=getattr(args, "show_filenames", False),
         memory_only=getattr(args, "memory_only", False),
         validate_render=args.validate_render,

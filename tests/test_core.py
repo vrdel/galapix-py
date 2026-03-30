@@ -636,6 +636,13 @@ class GalapixPyCoreTests(unittest.TestCase):
         args = parser.parse_args(["view", "--background-color", "#263238"])
         self.assertEqual(args.background_color, (0x26 / 255.0, 0x32 / 255.0, 0x38 / 255.0, 1.0))
 
+    def test_cli_accepts_selection_border_color(self) -> None:
+        from galapix_py.cli import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["view", "--selection-border-color", "#abcdef"])
+        self.assertEqual(args.selection_border_color, (0xAB / 255.0, 0xCD / 255.0, 0xEF / 255.0, 1.0))
+
     def test_cli_view_accepts_show_filenames(self) -> None:
         from galapix_py.cli import build_parser
 
@@ -1141,6 +1148,15 @@ class GalapixPyCoreTests(unittest.TestCase):
         options = ViewerOptions(database=Path("/tmp/db"), background_color=(0.2, 0.3, 0.4, 1.0))
         viewer = Viewer(options, Workspace(), None)
         self.assertEqual(viewer.selection_outline_color(), (0.45, 0.55, 0.65))
+
+    def test_viewer_selection_outline_color_uses_configured_color(self) -> None:
+        options = ViewerOptions(
+            database=Path("/tmp/db"),
+            background_color=(0.2, 0.3, 0.4, 1.0),
+            selection_border_color=(0.7, 0.8, 0.9, 1.0),
+        )
+        viewer = Viewer(options, Workspace(), None)
+        self.assertEqual(viewer.selection_outline_color(), (0.7, 0.8, 0.9))
 
     def test_overlay_label_text_uses_basename_and_truncates(self) -> None:
         self.assertEqual(overlay_label_text("/tmp/example.jpg"), "example.jpg")

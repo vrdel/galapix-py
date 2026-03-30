@@ -322,7 +322,12 @@ class Viewer:
         self.needs_redraw = True
 
     def selection_outline_color(self) -> tuple[float, float, float]:
-        return brighten_rgb(self.background_colors[self.background_index], levels=4)
+        if self.options.selection_border_color is not None:
+            return self.options.selection_border_color[:3]
+        return brighten_rgb(
+            self.background_colors[self.background_index],
+            levels=4,
+        )
 
     def toggle_status(self) -> None:
         self.show_status = not self.show_status
