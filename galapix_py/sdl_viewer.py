@@ -233,8 +233,15 @@ class SDLViewer:
             if event.button.button == sdl2.SDL_BUTTON_LEFT:
                 self.mouse_down_pos = (event.button.x, event.button.y)
         elif event.type == sdl2.SDL_MOUSEMOTION:
-            if event.motion.state & sdl2.SDL_BUTTON_LMASK:
+            left_drag = bool(event.motion.state & sdl2.SDL_BUTTON_LMASK)
+            right_drag = bool(event.motion.state & sdl2.SDL_BUTTON_RMASK)
+            middle_drag = bool(event.motion.state & sdl2.SDL_BUTTON_MMASK)
+            if left_drag or right_drag or middle_drag:
                 drag_pan_factor = self._drag_pan_factor()
+                if middle_drag:
+                    drag_pan_factor = max(3.0, drag_pan_factor)
+                if right_drag:
+                    drag_pan_factor = max(2.0, drag_pan_factor)
                 self.viewer.state.move(event.motion.xrel * drag_pan_factor, event.motion.yrel * drag_pan_factor)
                 self.viewer.request_redraw()
         elif event.type == sdl2.SDL_MOUSEBUTTONUP:

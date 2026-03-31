@@ -1031,6 +1031,72 @@ class GalapixPyCoreTests(unittest.TestCase):
         self.assertEqual(move_calls, [(36.0, -24.0)])
         self.assertTrue(viewer.redraw_requested)
 
+    def test_right_mouse_drag_pan_uses_ctrl_speed_without_modifier(self) -> None:
+        move_calls: list[tuple[float, float]] = []
+
+        class DummyState:
+            def move(self, x: float, y: float) -> None:
+                move_calls.append((x, y))
+
+        class DummyViewer:
+            def __init__(self) -> None:
+                self.state = DummyState()
+                self.redraw_requested = False
+
+            def request_redraw(self) -> None:
+                self.redraw_requested = True
+
+        viewer = DummyViewer()
+        sdl_viewer = SDLViewer(viewer)
+        event = type("Event", (), {})()
+        event.type = 0
+        event.motion = type("Motion", (), {"state": 4, "xrel": 12, "yrel": -8})()
+
+        with (
+            patch("galapix_py.sdl_viewer.sdl2.SDL_MOUSEMOTION", 0),
+            patch("galapix_py.sdl_viewer.sdl2.SDL_BUTTON_LMASK", 1),
+            patch("galapix_py.sdl_viewer.sdl2.SDL_BUTTON_MMASK", 2),
+            patch("galapix_py.sdl_viewer.sdl2.SDL_BUTTON_RMASK", 4),
+            patch.object(SDLViewer, "_drag_pan_factor", return_value=1.0),
+        ):
+            sdl_viewer._process_event(event)
+
+        self.assertEqual(move_calls, [(24.0, -16.0)])
+        self.assertTrue(viewer.redraw_requested)
+
+    def test_middle_mouse_drag_pan_uses_shift_speed_without_modifier(self) -> None:
+        move_calls: list[tuple[float, float]] = []
+
+        class DummyState:
+            def move(self, x: float, y: float) -> None:
+                move_calls.append((x, y))
+
+        class DummyViewer:
+            def __init__(self) -> None:
+                self.state = DummyState()
+                self.redraw_requested = False
+
+            def request_redraw(self) -> None:
+                self.redraw_requested = True
+
+        viewer = DummyViewer()
+        sdl_viewer = SDLViewer(viewer)
+        event = type("Event", (), {})()
+        event.type = 0
+        event.motion = type("Motion", (), {"state": 2, "xrel": 12, "yrel": -8})()
+
+        with (
+            patch("galapix_py.sdl_viewer.sdl2.SDL_MOUSEMOTION", 0),
+            patch("galapix_py.sdl_viewer.sdl2.SDL_BUTTON_LMASK", 1),
+            patch("galapix_py.sdl_viewer.sdl2.SDL_BUTTON_MMASK", 2),
+            patch("galapix_py.sdl_viewer.sdl2.SDL_BUTTON_RMASK", 4),
+            patch.object(SDLViewer, "_drag_pan_factor", return_value=1.0),
+        ):
+            sdl_viewer._process_event(event)
+
+        self.assertEqual(move_calls, [(36.0, -24.0)])
+        self.assertTrue(viewer.redraw_requested)
+
     def test_keyboard_zoom_uses_largest_step_with_shift(self) -> None:
         zoom_calls: list[tuple[float, float, float]] = []
 
