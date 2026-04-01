@@ -202,6 +202,42 @@ class GalapixPyCoreTests(unittest.TestCase):
             self.assertIn("  stored_tiles: 3\n", text)
             self.assertRegex(text, r"  elapsed: \d+\.\d{2}s(?: \(\d+\.\d{2}m\))?\n")
 
+    def test_prepare_filters_images_by_pattern(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            first = make_test_jpeg(base, width=100, height=80)
+            second = base / "sample-2.jpg"
+            pyvips.Image.black(120, 90).bandjoin([32, 96]).jpegsave(str(second), Q=90)
+
+            options = ViewerOptions(database=base / "db")
+            app = GalapixApp(options)
+
+            app.prepare([str(base)], patterns=[r"sample-2"])
+
+            database = Database(base / "db")
+            try:
+                self.assertIsNone(database.get_file_entry(str(first.resolve())))
+                self.assertIsNotNone(database.get_file_entry(str(second.resolve())))
+            finally:
+                database.close()
+
+    def test_prepare_pattern_can_ignore_case(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            image_path = base / "Upper.JPG"
+            pyvips.Image.black(100, 80).bandjoin([64, 128]).jpegsave(str(image_path), Q=90)
+
+            options = ViewerOptions(database=base / "db", ignore_pattern_case=True)
+            app = GalapixApp(options)
+
+            app.prepare([str(base)], patterns=[r"\.jpg"])
+
+            database = Database(base / "db")
+            try:
+                self.assertIsNotNone(database.get_file_entry(str(image_path.resolve())))
+            finally:
+                database.close()
+
     def test_prepare_all_tiles_regenerates_changed_images(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
@@ -688,6 +724,13 @@ class GalapixPyCoreTests(unittest.TestCase):
         parser = build_parser()
         args = parser.parse_args(["prepare", "--jpeg-quality", "72"])
         self.assertEqual(args.jpeg_quality, 72)
+
+    def test_cli_prepare_accepts_pattern(self) -> None:
+        from galapix_py.cli import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["-p", "sample", "prepare", "images"])
+        self.assertEqual(args.pattern, ["sample"])
 
     def test_parse_background_color_rejects_invalid_hex(self) -> None:
         from galapix_py.cli import parse_background_color

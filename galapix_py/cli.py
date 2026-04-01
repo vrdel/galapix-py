@@ -66,7 +66,7 @@ def _run_command(app, args) -> int:
         app.view(args.paths, patterns=args.pattern)
         return 0
     elif args.command == "prepare":
-        return 0 if app.prepare(args.paths) else 1
+        return 0 if app.prepare(args.paths, patterns=args.pattern) else 1
     elif args.command == "selfcheck":
         app.selfcheck(args.paths)
         return 0
