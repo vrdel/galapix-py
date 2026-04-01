@@ -1,21 +1,79 @@
 from __future__ import annotations
 
 import math
+from io import BytesIO
 from pathlib import Path
-from typing import Iterable, Iterator
+from typing import Iterator
 
-import pyvips
+from PIL import Image as PILImage
 
 from .models import FileEntry, TILE_SIZE, TileRecord, file_stats_for_path
+
+PILImage.MAX_IMAGE_PIXELS = None
+
+try:
+    RESAMPLE_LANCZOS = PILImage.Resampling.LANCZOS
+except AttributeError:
+    RESAMPLE_LANCZOS = PILImage.LANCZOS
+
+
+class RasterImage:
+    def __init__(self, image: PILImage.Image) -> None:
+        self._image = image
+
+    @property
+    def width(self) -> int:
+        return self._image.width
+
+    @property
+    def height(self) -> int:
+        return self._image.height
+
+    def thumbnail_image(self, width: int, height: int, size: str = "force") -> "RasterImage":
+        if size != "force":
+            raise ValueError(f"unsupported thumbnail size mode: {size}")
+        resized = self._image.resize((width, height), RESAMPLE_LANCZOS)
+        return RasterImage(resized)
+
+    def crop(self, left: int, top: int, width: int, height: int) -> "RasterImage":
+        return RasterImage(self._image.crop((left, top, left + width, top + height)))
+
+    def jpegsave_buffer(self, Q: int = 85, strip: bool = True) -> bytes:
+        image = _coerce_jpeg_mode(self._image)
+        buffer = BytesIO()
+        save_kwargs = {"format": "JPEG", "quality": Q}
+        if strip:
+            save_kwargs["icc_profile"] = None
+            save_kwargs["exif"] = b""
+            save_kwargs["comment"] = b""
+        image.save(buffer, **save_kwargs)
+        return buffer.getvalue()
+
+
+def _coerce_jpeg_mode(image: PILImage.Image) -> PILImage.Image:
+    if image.mode in {"RGB", "L", "CMYK"}:
+        return image
+    if image.mode in {"RGBA", "LA"}:
+        alpha_index = image.getbands().index("A")
+        alpha = image.getchannel(alpha_index)
+        flattened = PILImage.new("RGB", image.size, (0, 0, 0))
+        flattened.paste(image.convert("RGBA").convert("RGB"), mask=alpha)
+        return flattened
+    if image.mode == "P":
+        return _coerce_jpeg_mode(image.convert("RGBA" if "transparency" in image.info else "RGB"))
+    return image.convert("RGB")
 
 
 def normalize_path(path: str | Path) -> str:
     return str(Path(path).expanduser().resolve())
 
 
-def load_image(path: str | Path, access: str = "sequential") -> pyvips.Image:
+def load_image(path: str | Path, access: str = "sequential") -> RasterImage:
+    del access
     normalized = normalize_path(path)
-    return pyvips.Image.new_from_file(normalized, access=access)
+    with PILImage.open(normalized) as image:
+        image.load()
+        return RasterImage(image.copy())
 
 
 def probe_file_entry(path: str | Path) -> FileEntry:
@@ -58,7 +116,7 @@ def generate_tiles_for_entry(
         yield from cut_surface_into_tiles(scaled, scale, quality=quality)
 
 
-def cut_surface_into_tiles(image: pyvips.Image, scale: int, quality: int = 85) -> Iterator[TileRecord]:
+def cut_surface_into_tiles(image: RasterImage, scale: int, quality: int = 85) -> Iterator[TileRecord]:
     x_tiles = math.ceil(image.width / TILE_SIZE)
     y_tiles = math.ceil(image.height / TILE_SIZE)
     for y in range(y_tiles):

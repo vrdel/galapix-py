@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "numpy>=1.26",
+  "Pillow>=10.0",
   "PyOpenGL>=3.1.7",
   "PySDL2>=0.9.16",
   "pyvips>=2.2.2",
