@@ -163,10 +163,11 @@ class GalapixApp:
             if database is not None:
                 database.close()
 
-    def prepare(self, paths: Iterable[str]) -> None:
+    def prepare(self, paths: Iterable[str], patterns: Iterable[str] = ()) -> bool:
         from .tiling import generate_tiles_for_entry, probe_file_entry
 
         started_at = time.perf_counter()
+        compiled_patterns = self.compile_patterns(patterns)
 
         def prepare_one(path: str, cached_entry, cached_min: int | None, cached_max: int | None):
             fresh = probe_file_entry(path)
@@ -199,9 +200,9 @@ class GalapixApp:
 
         database = Database(self.options.database)
         try:
-            expanded = self.expand_paths(paths)
+            expanded = [path for path in self.expand_paths(paths) if self.pattern_matches(path, compiled_patterns)]
             if not expanded:
-                return
+                return False
 
             worker_count = max(1, self.options.threads)
             skipped = 0
@@ -257,6 +258,7 @@ class GalapixApp:
             print(f"  prepared: {prepared}")
             print(f"  stored_tiles: {stored_tiles}")
             print(f"  elapsed: {self._format_elapsed(time.perf_counter() - started_at)}")
+            return stored_tiles > 0
         finally:
             database.close()
 

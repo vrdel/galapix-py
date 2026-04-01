@@ -61,22 +61,28 @@ def parse_background_color(text: str) -> tuple[float, float, float, float]:
     return red / 255.0, green / 255.0, blue / 255.0, 1.0
 
 
-def _run_command(app, args) -> None:
+def _run_command(app, args) -> int:
     if args.command == "view":
         app.view(args.paths, patterns=args.pattern)
+        return 0
     elif args.command == "prepare":
-        app.prepare(args.paths)
+        return 0 if app.prepare(args.paths, patterns=args.pattern) else 1
     elif args.command == "selfcheck":
         app.selfcheck(args.paths)
+        return 0
     elif args.command == "list":
         app.list_files()
+        return 0
     elif args.command == "check":
         app.check()
+        return 0
     elif args.command == "cleanup":
         app.cleanup(args.paths)
+        return 0
+    return 0
 
 
-def main() -> None:
+def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
     geometry = getattr(args, "geometry", "1280x720")
@@ -104,9 +110,9 @@ def main() -> None:
     )
     app = GalapixApp(options)
     try:
-        _run_command(app, args)
+        return _run_command(app, args)
     except KeyboardInterrupt:
-        return
+        return 130
 
 
 def cleanup_main() -> None:
@@ -125,4 +131,4 @@ def cleanup_main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
