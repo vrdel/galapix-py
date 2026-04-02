@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from io import BytesIO
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
 import numpy as np
-import pyvips
+from PIL import Image as PILImage
+from PIL import ImageDraw, ImageFont
 from OpenGL.GL import (
     GL_BLEND,
     GL_CLAMP_TO_EDGE,
@@ -62,6 +64,19 @@ from .workspace import Workspace
 WORKSPACE_DUMP_PATH = "/tmp/workspace-dump.galapix"
 
 
+def _decode_texture_pixels(jpeg_bytes: bytes) -> tuple[np.ndarray, int, int, int]:
+    with PILImage.open(BytesIO(jpeg_bytes)) as image:
+        image.load()
+        if image.mode not in {"L", "RGB", "RGBA"}:
+            image = image.convert("RGBA" if "A" in image.getbands() else "RGB")
+        pixels = np.array(image, dtype=np.uint8)
+        if pixels.ndim == 2:
+            channels = 1
+        else:
+            channels = int(pixels.shape[2])
+        return pixels, image.width, image.height, channels
+
+
 def configure_texture_upload_state() -> None:
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
@@ -90,16 +105,14 @@ class TextureCache:
         texture = int(glGenTextures(1))
         glBindTexture(GL_TEXTURE_2D, texture)
         configure_texture_upload_state()
-        vips_image = pyvips.Image.new_from_buffer(jpeg_bytes, "")
-        memory = np.frombuffer(vips_image.write_to_memory(), dtype=np.uint8)
-        channels = vips_image.bands
+        memory, width, height, channels = _decode_texture_pixels(jpeg_bytes)
         fmt = {1: GL_LUMINANCE, 3: GL_RGB, 4: GL_RGBA}.get(channels, GL_RGB)
         glTexImage2D(
             GL_TEXTURE_2D,
             0,
             fmt,
-            vips_image.width,
-            vips_image.height,
+            width,
+            height,
             0,
             fmt,
             GL_UNSIGNED_BYTE,
@@ -155,13 +168,24 @@ def overlay_label_text(path: str, max_chars: int = 48) -> str:
 
 
 def build_label_rgba(text: str, padding_x: int = 6, padding_y: int = 4) -> tuple[np.ndarray, int, int]:
-    mask = pyvips.Image.text(text, dpi=110)
-    alpha = np.frombuffer(mask.write_to_memory(), dtype=np.uint8).reshape(mask.height, mask.width)
-    width = mask.width + padding_x * 2
-    height = mask.height + padding_y * 2
+    font = ImageFont.load_default()
+    probe = PILImage.new("L", (1, 1), 0)
+    probe_draw = ImageDraw.Draw(probe)
+    left, top, right, bottom = probe_draw.textbbox((0, 0), text, font=font)
+    text_width = max(1, right - left)
+    text_height = max(1, bottom - top)
+    width = text_width + padding_x * 2
+    height = text_height + padding_y * 2
+    mask_image = PILImage.new("L", (width, height), 0)
+    draw = ImageDraw.Draw(mask_image)
+    draw.text((padding_x - left, padding_y - top), text, fill=255, font=font)
+    alpha = np.array(mask_image, dtype=np.uint8)
+    alpha_max = int(alpha.max())
+    if alpha_max and alpha_max < 255:
+        alpha = np.clip((alpha.astype(np.uint16) * 255) // alpha_max, 0, 255).astype(np.uint8)
     rgba = np.zeros((height, width, 4), dtype=np.uint8)
-    rgba[padding_y:padding_y + mask.height, padding_x:padding_x + mask.width, :3] = 255
-    rgba[padding_y:padding_y + mask.height, padding_x:padding_x + mask.width, 3] = alpha
+    rgba[:, :, :3] = 255
+    rgba[:, :, 3] = alpha
     return rgba, width, height
 
 

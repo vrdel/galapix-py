@@ -9,7 +9,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import call, patch
 
-import pyvips
+from PIL import Image as PILImage
 
 from galapix_py.app import GalapixApp
 from galapix_py.database import Database
@@ -41,9 +41,18 @@ from galapix_py.workspace import Workspace
 
 
 def make_test_jpeg(directory: Path, width: int = 96, height: int = 64) -> Path:
-    image = pyvips.Image.black(width, height).bandjoin([64, 128])
     path = directory / "sample.jpg"
-    image.jpegsave(str(path), Q=90)
+    make_solid_jpeg(path, width=width, height=height, color=(0, 64, 128))
+    return path
+
+
+def make_solid_jpeg(
+    path: Path,
+    width: int,
+    height: int,
+    color: tuple[int, int, int] = (0, 64, 128),
+) -> Path:
+    PILImage.new("RGB", (width, height), color).save(path, format="JPEG", quality=90)
     return path
 
 
@@ -119,7 +128,7 @@ class GalapixPyCoreTests(unittest.TestCase):
             base = Path(tmpdir)
             first = make_test_jpeg(base, width=100, height=80)
             second = base / "sample-2.jpg"
-            pyvips.Image.black(120, 90).bandjoin([32, 96]).jpegsave(str(second), Q=90)
+            make_solid_jpeg(second, width=120, height=90, color=(0, 32, 96))
 
             options = ViewerOptions(database=base / "db")
             app = GalapixApp(options)
@@ -155,7 +164,7 @@ class GalapixPyCoreTests(unittest.TestCase):
             base = Path(tmpdir)
             first = make_test_jpeg(base, width=100, height=80)
             second = base / "sample-2.jpg"
-            pyvips.Image.black(120, 90).bandjoin([32, 96]).jpegsave(str(second), Q=90)
+            make_solid_jpeg(second, width=120, height=90, color=(0, 32, 96))
 
             options = ViewerOptions(database=base / "db")
             app = GalapixApp(options)
@@ -207,7 +216,7 @@ class GalapixPyCoreTests(unittest.TestCase):
             base = Path(tmpdir)
             first = make_test_jpeg(base, width=100, height=80)
             second = base / "sample-2.jpg"
-            pyvips.Image.black(120, 90).bandjoin([32, 96]).jpegsave(str(second), Q=90)
+            make_solid_jpeg(second, width=120, height=90, color=(0, 32, 96))
 
             options = ViewerOptions(database=base / "db")
             app = GalapixApp(options)
@@ -225,7 +234,7 @@ class GalapixPyCoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
             image_path = base / "Upper.JPG"
-            pyvips.Image.black(100, 80).bandjoin([64, 128]).jpegsave(str(image_path), Q=90)
+            make_solid_jpeg(image_path, width=100, height=80, color=(0, 64, 128))
 
             options = ViewerOptions(database=base / "db", ignore_pattern_case=True)
             app = GalapixApp(options)
@@ -247,7 +256,7 @@ class GalapixPyCoreTests(unittest.TestCase):
 
             app.prepare([str(image_path)])
             time.sleep(0.01)
-            pyvips.Image.black(400, 200).bandjoin([16, 200]).jpegsave(str(image_path), Q=90)
+            make_solid_jpeg(image_path, width=400, height=200, color=(0, 16, 200))
 
             original = generate_tiles_for_entry
             with patch("galapix_py.tiling.generate_tiles_for_entry", wraps=original) as wrapped:
@@ -304,7 +313,7 @@ class GalapixPyCoreTests(unittest.TestCase):
             base = Path(tmpdir)
             first = make_test_jpeg(base, width=320, height=120)
             second = base / "sample-2.jpg"
-            pyvips.Image.black(160, 300).bandjoin([32, 96]).jpegsave(str(second), Q=90)
+            make_solid_jpeg(second, width=160, height=300, color=(0, 32, 96))
 
             options = ViewerOptions(database=base / "db")
             app = GalapixApp(options)
@@ -335,8 +344,8 @@ class GalapixPyCoreTests(unittest.TestCase):
             base = Path(tmpdir)
             first = base / "z-last.jpg"
             second = base / "a-first.jpg"
-            pyvips.Image.black(120, 80).bandjoin([64, 128]).jpegsave(str(first), Q=90)
-            pyvips.Image.black(120, 80).bandjoin([64, 128]).jpegsave(str(second), Q=90)
+            make_solid_jpeg(first, width=120, height=80, color=(0, 64, 128))
+            make_solid_jpeg(second, width=120, height=80, color=(0, 64, 128))
 
             options = ViewerOptions(database=base / "db", sort="name")
             app = GalapixApp(options)
@@ -365,8 +374,8 @@ class GalapixPyCoreTests(unittest.TestCase):
             base = Path(tmpdir)
             first = base / "z-last.jpg"
             second = base / "a-first.jpg"
-            pyvips.Image.black(120, 80).bandjoin([64, 128]).jpegsave(str(first), Q=90)
-            pyvips.Image.black(120, 80).bandjoin([64, 128]).jpegsave(str(second), Q=90)
+            make_solid_jpeg(first, width=120, height=80, color=(0, 64, 128))
+            make_solid_jpeg(second, width=120, height=80, color=(0, 64, 128))
 
             options = ViewerOptions(database=base / "db", sort="name-reverse")
             app = GalapixApp(options)
@@ -394,7 +403,7 @@ class GalapixPyCoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
             image_path = base / "MixedCase.jpg"
-            pyvips.Image.black(120, 80).bandjoin([64, 128]).jpegsave(str(image_path), Q=90)
+            make_solid_jpeg(image_path, width=120, height=80, color=(0, 64, 128))
 
             options = ViewerOptions(database=base / "db", ignore_pattern_case=True, memory_only=True)
             app = GalapixApp(options)
@@ -421,9 +430,9 @@ class GalapixPyCoreTests(unittest.TestCase):
             first = base / "argo-map.jpg"
             second = base / "ldap-notes.jpg"
             third = base / "other.jpg"
-            pyvips.Image.black(120, 80).bandjoin([64, 128]).jpegsave(str(first), Q=90)
-            pyvips.Image.black(120, 80).bandjoin([64, 128]).jpegsave(str(second), Q=90)
-            pyvips.Image.black(120, 80).bandjoin([64, 128]).jpegsave(str(third), Q=90)
+            make_solid_jpeg(first, width=120, height=80, color=(0, 64, 128))
+            make_solid_jpeg(second, width=120, height=80, color=(0, 64, 128))
+            make_solid_jpeg(third, width=120, height=80, color=(0, 64, 128))
 
             options = ViewerOptions(database=base / "db", memory_only=True)
             app = GalapixApp(options)
@@ -535,9 +544,9 @@ class GalapixPyCoreTests(unittest.TestCase):
             base = Path(tmpdir)
             first = base / "a.jpg"
             second = base / "b.jpg"
-            pyvips.Image.black(32, 32).bandjoin([32, 96]).jpegsave(str(first), Q=90)
+            make_solid_jpeg(first, width=32, height=32, color=(0, 32, 96))
             time.sleep(0.01)
-            pyvips.Image.black(32, 32).bandjoin([64, 128]).jpegsave(str(second), Q=90)
+            make_solid_jpeg(second, width=32, height=32, color=(0, 64, 128))
 
             workspace = Workspace()
             workspace.add_image(Image(str(second)))
@@ -608,7 +617,7 @@ class GalapixPyCoreTests(unittest.TestCase):
             base = Path(tmpdir)
             first = make_test_jpeg(base, width=96, height=64)
             second = base / "sample-2.jpg"
-            pyvips.Image.black(64, 64).bandjoin([32, 96]).jpegsave(str(second), Q=90)
+            make_solid_jpeg(second, width=64, height=64, color=(0, 32, 96))
 
             options = ViewerOptions(database=base / "unused-db")
             app = GalapixApp(options)

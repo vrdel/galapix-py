@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "galapix-py"
 version = "0.1.0"
-description = "Python port of galapix using libvips and PyOpenGL"
+description = "Python port of galapix using Pillow and PyOpenGL"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -13,7 +13,6 @@ dependencies = [
   "Pillow>=10.0",
   "PyOpenGL>=3.1.7",
   "PySDL2>=0.9.16",
-  "pyvips>=2.2.2",
 ]
 
 [project.scripts]
