@@ -62,6 +62,11 @@ from .viewer_state import ViewerState
 from .workspace import Workspace
 
 WORKSPACE_DUMP_PATH = "/tmp/workspace-dump.galapix"
+LABEL_FONT_SIZE = 14
+LABEL_FONT_CANDIDATES = (
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
+)
 
 
 def _decode_texture_pixels(jpeg_bytes: bytes) -> tuple[np.ndarray, int, int, int]:
@@ -75,6 +80,15 @@ def _decode_texture_pixels(jpeg_bytes: bytes) -> tuple[np.ndarray, int, int, int
         else:
             channels = int(pixels.shape[2])
         return pixels, image.width, image.height, channels
+
+
+def _load_label_font() -> ImageFont.ImageFont | ImageFont.FreeTypeFont:
+    for path in LABEL_FONT_CANDIDATES:
+        try:
+            return ImageFont.truetype(path, LABEL_FONT_SIZE)
+        except OSError:
+            continue
+    return ImageFont.load_default()
 
 
 def configure_texture_upload_state() -> None:
@@ -168,7 +182,7 @@ def overlay_label_text(path: str, max_chars: int = 48) -> str:
 
 
 def build_label_rgba(text: str, padding_x: int = 6, padding_y: int = 4) -> tuple[np.ndarray, int, int]:
-    font = ImageFont.load_default()
+    font = _load_label_font()
     probe = PILImage.new("L", (1, 1), 0)
     probe_draw = ImageDraw.Draw(probe)
     left, top, right, bottom = probe_draw.textbbox((0, 0), text, font=font)
