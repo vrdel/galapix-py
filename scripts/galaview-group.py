@@ -1,12 +1,9 @@
 #!/home/daniel/.pyenv/versions/gvmm-py3/bin/python3
 
-import os, sys, sqlite3, math, time, signal, argparse, shlex
+import os, sys, time, signal, argparse, shlex
 import socket, select, subprocess, configparser, errno
-from PIL import Image
 
-Image.MAX_IMAGE_PIXELS = None
-
-DEFAULT_CFG = os.path.join(os.environ["HOME"], ".galapix", "galapix.cfg")
+DEFAULT_CFG = os.path.join(os.environ["HOME"], ".galapix", "galagroup.cfg")
 DEFAULT_BACKEND = "py"
 DEFAULT_PYENV_ENV = "galapix-py"
 DEFAULT_PY_PATTERNS = []
@@ -28,8 +25,8 @@ def cleanup(server, sock):
         if os.path.exists(sock):
             raise
 
-def build_sdl_command(dirp, dbp, geom, title):
-    cmd = [
+def build_sdl_command(dbp, geom, title):
+    return [
         "galapix.sdl",
         "--threads", "6",
         "-g", geom,
@@ -37,12 +34,9 @@ def build_sdl_command(dirp, dbp, geom, title):
         "--title", title,
         "view",
     ]
-    if dirp:
-        cmd.append(dirp)
-    return cmd
 
 
-def build_py_command(dirp, dbp, geom, title, pyenv_env, patterns,
+def build_py_command(dbp, geom, title, pyenv_env, patterns,
                      sort=DEFAULT_PY_SORT, background=DEFAULT_PY_BACKGROUND,
                      selection_border=DEFAULT_PY_SELECTION_BORDER,
                      spacing=DEFAULT_PY_SPACING):
@@ -64,8 +58,6 @@ def build_py_command(dirp, dbp, geom, title, pyenv_env, patterns,
         "--geometry", geom,
         "--title", title,
     ])
-    if dirp:
-        cmd.append(dirp)
 
     shell_lines = [
         'export PYENV_ROOT="$HOME/.pyenv"',
@@ -77,54 +69,15 @@ def build_py_command(dirp, dbp, geom, title, pyenv_env, patterns,
     return ["/bin/bash", "-lc", "\n".join(shell_lines)]
 
 
-def start(dirp, dbp, geom, title, backend, pyenv_env, patterns, changes_track,
+def start(dbp, geom, title, backend, pyenv_env, patterns,
           sort=DEFAULT_PY_SORT, background=DEFAULT_PY_BACKGROUND,
           selection_border=DEFAULT_PY_SELECTION_BORDER, spacing=DEFAULT_PY_SPACING):
-    rows = []
-
-    if dirp and changes_track and os.path.exists(dbp + "/cache3.sqlite3"):
-
-        conn = sqlite3.connect(dbp + "/cache3.sqlite3")
-        # conn.text_factory = str
-        cur = conn.cursor()
-
-        for f in os.listdir(dirp):
-            f = dirp + "/" + f
-            f = "%%%s%%" % f
-            tup = (f, )
-
-            cur.execute('SELECT fileid, url, mtime FROM files WHERE url LIKE ?', tup)
-            rows = cur.fetchall()
-
-
-            for i in rows:
-                dbid = i[0]
-                dbpath = i[1].replace("file:", "")
-                dbmtime = i[2]
-
-                try:
-                    filestat = os.stat(dbpath)
-                    filemtime = math.trunc(filestat.st_mtime)
-                except os.error:
-                    cur.execute('DELETE FROM files WHERE fileid == ?', (dbid, ))
-                    cur.execute('DELETE FROM tiles WHERE fileid == ?', (dbid, ))
-                else:
-                    if filemtime > dbmtime:
-                        im = Image.open(dbpath)
-                        t = (filemtime, filestat.st_size, im.size[0], im.size[1], dbid)
-                        cur.execute('UPDATE files SET mtime=?, size=?, width=?, height=? WHERE fileid == ?', t)
-                        cur.execute('DELETE FROM tiles WHERE fileid == ?', (dbid, ))
-
-            conn.commit()
-
-        conn.close()
-
     if backend == "py":
-        cmd = build_py_command(dirp, dbp, geom, title, pyenv_env, patterns,
+        cmd = build_py_command(dbp, geom, title, pyenv_env, patterns,
                                sort=sort, background=background,
                                selection_border=selection_border, spacing=spacing)
     else:
-        cmd = build_sdl_command(dirp, dbp, geom, title)
+        cmd = build_sdl_command(dbp, geom, title)
 
     return subprocess.Popen(cmd, preexec_fn=os.setpgrp)
 
@@ -212,12 +165,10 @@ def main():
 
     for section in config.sections():
         if section.startswith("Dir"):
-            Settings["dirp"] = config.get(section, "dirpath")
             Settings["dbp"] = config.get(section, "dbpath")
             Settings["title"] = config.get(section, "wintitle")
             Settings["geom"] = config.get(section, "geometry")
             Settings["patterns"] = DEFAULT_PY_PATTERNS[:]
-            Settings["changes_track"] = config.getboolean(section, "changes_track", fallback=True)
             Settings["backend"] = config.get(section, "backend", fallback=cfg_backend)
             Settings["pyenv_env"] = config.get(section, "pyenv_env", fallback=cfg_pyenv_env)
             Settings["sort"] = config.get(section, "sort", fallback=cfg_sort)
@@ -227,14 +178,12 @@ def main():
             if config.has_option(section, "pattern"):
                 Settings["patterns"].append(config.get(section, "pattern"))
             proc = start(
-                Settings["dirp"],
                 Settings["dbp"],
                 Settings["geom"],
                 Settings["title"],
                 Settings["backend"],
                 Settings["pyenv_env"],
                 Settings["patterns"],
-                Settings["changes_track"],
                 sort=Settings["sort"],
                 background=Settings["background"],
                 selection_border=Settings["selection_border"],
@@ -266,14 +215,12 @@ def main():
                             os.killpg(pgid, signal.SIGTERM)
                             time.sleep(1)
                             proc = start(
-                                GalaInstan[inst]["dirp"],
                                 GalaInstan[inst]["dbp"],
                                 GalaInstan[inst]["geom"],
                                 GalaInstan[inst]["title"],
                                 GalaInstan[inst].get("backend", cfg_backend),
                                 GalaInstan[inst].get("pyenv_env", cfg_pyenv_env),
                                 GalaInstan[inst].get("patterns", DEFAULT_PY_PATTERNS),
-                                GalaInstan[inst].get("changes_track", True),
                                 sort=GalaInstan[inst].get("sort", cfg_sort),
                                 background=GalaInstan[inst].get("background", cfg_background),
                                 selection_border=GalaInstan[inst].get("selection_border", cfg_selection_border),
