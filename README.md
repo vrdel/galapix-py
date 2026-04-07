@@ -2,7 +2,7 @@
 
 Python port of `galapix` built around:
 
-- `pyvips` for image decode, scaling, and tile generation
+- `Pillow` for image decode, scaling, tile generation, and label rasterization
 - `PyOpenGL` for textured tile rendering
 - `PySDL2` for windowing and input
 - `sqlite3` for persistent file and tile caches
@@ -68,7 +68,6 @@ pip install -e .
 
 System dependencies are still required for:
 
-- `libvips`
 - OpenGL
 - SDL2
 

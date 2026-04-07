@@ -17,6 +17,7 @@ dependencies = [
 
 [project.scripts]
 galapix-py = "galapix_py.cli:main"
+galapix-prepare = "galapix_py.cli_prepare:main"
 galapix-clean = "galapix_py.cli:cleanup_main"
 
 [tool.setuptools]
