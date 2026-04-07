@@ -7,7 +7,7 @@ from PIL import Image
 Image.MAX_IMAGE_PIXELS = None
 
 DEFAULT_CFG = os.path.join(os.environ["HOME"], ".galapix", "galapix.cfg")
-DEFAULT_BACKEND = "sdl"
+DEFAULT_BACKEND = "py"
 DEFAULT_PYENV_ENV = "galapix-py"
 DEFAULT_PY_PATTERNS = []
 DEFAULT_PY_SORT = "mtime-reverse"
@@ -42,9 +42,12 @@ def build_sdl_command(dirp, dbp, geom, title):
     return cmd
 
 
-def build_py_command(dirp, dbp, geom, title, pyenv_env, patterns):
+def build_py_command(dirp, dbp, geom, title, pyenv_env, patterns,
+                     sort=DEFAULT_PY_SORT, background=DEFAULT_PY_BACKGROUND,
+                     selection_border=DEFAULT_PY_SELECTION_BORDER,
+                     spacing=DEFAULT_PY_SPACING):
     cmd = [
-        "galapix-py",
+        "galapix-view",
         "--ignore-pattern-case",
     ]
 
@@ -53,12 +56,11 @@ def build_py_command(dirp, dbp, geom, title, pyenv_env, patterns):
 
     cmd.extend([
         "-d", dbp,
-        "view",
-        "--background-color", DEFAULT_PY_BACKGROUND,
-        "--selection-border-color", DEFAULT_PY_SELECTION_BORDER,
-        "--spacing", str(DEFAULT_PY_SPACING),
+        "--background-color", background,
+        "--selection-border-color", selection_border,
+        "--spacing", str(spacing),
         "--show-filenames",
-        "--sort", DEFAULT_PY_SORT,
+        "--sort", sort,
         "--geometry", geom,
         "--title", title,
     ])
@@ -75,7 +77,9 @@ def build_py_command(dirp, dbp, geom, title, pyenv_env, patterns):
     return ["/bin/bash", "-lc", "\n".join(shell_lines)]
 
 
-def start(dirp, dbp, geom, title, backend, pyenv_env, patterns, changes_track):
+def start(dirp, dbp, geom, title, backend, pyenv_env, patterns, changes_track,
+          sort=DEFAULT_PY_SORT, background=DEFAULT_PY_BACKGROUND,
+          selection_border=DEFAULT_PY_SELECTION_BORDER, spacing=DEFAULT_PY_SPACING):
     rows = []
 
     if dirp and changes_track and os.path.exists(dbp + "/cache3.sqlite3"):
@@ -116,7 +120,9 @@ def start(dirp, dbp, geom, title, backend, pyenv_env, patterns, changes_track):
         conn.close()
 
     if backend == "py":
-        cmd = build_py_command(dirp, dbp, geom, title, pyenv_env, patterns)
+        cmd = build_py_command(dirp, dbp, geom, title, pyenv_env, patterns,
+                               sort=sort, background=background,
+                               selection_border=selection_border, spacing=spacing)
     else:
         cmd = build_sdl_command(dirp, dbp, geom, title)
 
@@ -125,8 +131,6 @@ def start(dirp, dbp, geom, title, backend, pyenv_env, patterns, changes_track):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default=DEFAULT_CFG)
-    parser.add_argument("--backend", choices=("sdl", "py"), default=DEFAULT_BACKEND)
-    parser.add_argument("--pyenv-env", default=DEFAULT_PYENV_ENV)
     args = parser.parse_args()
 
     Settings = {}
@@ -199,6 +203,13 @@ def main():
             sys.exit(1)
 
 
+    cfg_backend = config.defaults().get("backend", DEFAULT_BACKEND)
+    cfg_pyenv_env = config.defaults().get("pyenv_env", DEFAULT_PYENV_ENV)
+    cfg_sort = config.defaults().get("sort", DEFAULT_PY_SORT)
+    cfg_background = config.defaults().get("background", DEFAULT_PY_BACKGROUND)
+    cfg_selection_border = config.defaults().get("selection_border", DEFAULT_PY_SELECTION_BORDER)
+    cfg_spacing = config.defaults().get("spacing", str(DEFAULT_PY_SPACING))
+
     for section in config.sections():
         if section.startswith("Dir"):
             Settings["dirp"] = config.get(section, "dirpath")
@@ -207,6 +218,12 @@ def main():
             Settings["geom"] = config.get(section, "geometry")
             Settings["patterns"] = DEFAULT_PY_PATTERNS[:]
             Settings["changes_track"] = config.getboolean(section, "changes_track", fallback=True)
+            Settings["backend"] = config.get(section, "backend", fallback=cfg_backend)
+            Settings["pyenv_env"] = config.get(section, "pyenv_env", fallback=cfg_pyenv_env)
+            Settings["sort"] = config.get(section, "sort", fallback=cfg_sort)
+            Settings["background"] = config.get(section, "background", fallback=cfg_background)
+            Settings["selection_border"] = config.get(section, "selection_border", fallback=cfg_selection_border)
+            Settings["spacing"] = int(config.get(section, "spacing", fallback=cfg_spacing))
             if config.has_option(section, "pattern"):
                 Settings["patterns"].append(config.get(section, "pattern"))
             proc = start(
@@ -214,10 +231,14 @@ def main():
                 Settings["dbp"],
                 Settings["geom"],
                 Settings["title"],
-                args.backend,
-                args.pyenv_env,
+                Settings["backend"],
+                Settings["pyenv_env"],
                 Settings["patterns"],
                 Settings["changes_track"],
+                sort=Settings["sort"],
+                background=Settings["background"],
+                selection_border=Settings["selection_border"],
+                spacing=Settings["spacing"],
             )
             Settings["pid"] = proc.pid
             Settings["inst"] = proc
@@ -240,7 +261,7 @@ def main():
                 if data[1] == "restart":
                     signal.signal(signal.SIGCHLD, signal.SIG_IGN)
                     for inst in GalaInstan:
-                        if data[0] in inst:
+                        if data[0] in inst or data[0] == "all":
                             pgid = os.getpgid(GalaInstan[inst]["pid"])
                             os.killpg(pgid, signal.SIGTERM)
                             time.sleep(1)
@@ -249,28 +270,17 @@ def main():
                                 GalaInstan[inst]["dbp"],
                                 GalaInstan[inst]["geom"],
                                 GalaInstan[inst]["title"],
-                                args.backend,
-                                args.pyenv_env,
+                                GalaInstan[inst].get("backend", cfg_backend),
+                                GalaInstan[inst].get("pyenv_env", cfg_pyenv_env),
                                 GalaInstan[inst].get("patterns", DEFAULT_PY_PATTERNS),
                                 GalaInstan[inst].get("changes_track", True),
+                                sort=GalaInstan[inst].get("sort", cfg_sort),
+                                background=GalaInstan[inst].get("background", cfg_background),
+                                selection_border=GalaInstan[inst].get("selection_border", cfg_selection_border),
+                                spacing=int(GalaInstan[inst].get("spacing", cfg_spacing)),
                             )
                             GalaInstan[inst]["pid"] = proc.pid
                             GalaInstan[inst]["inst"] = proc
-                        elif data[0] == "all":
-                            pgid = os.getpgid(GalaInstan[inst]["pid"])
-                            os.killpg(pgid, signal.SIGTERM)
-                            time.sleep(1)
-                            proc = start(
-                                GalaInstan[inst]["dirp"],
-                                GalaInstan[inst]["dbp"],
-                                GalaInstan[inst]["geom"],
-                                GalaInstan[inst]["title"],
-                                args.backend,
-                                args.pyenv_env,
-                                GalaInstan[inst].get("patterns", DEFAULT_PY_PATTERNS),
-                                GalaInstan[inst].get("changes_track", True),
-                            )
-                            GalaInstan[inst]["pid"] = proc.pid
 
                     signal.signal(signal.SIGCHLD, chldcleanup)
 
