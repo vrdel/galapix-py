@@ -1,6 +1,6 @@
 #!/home/daniel/.pyenv/versions/gvmm-py3/bin/python3
 
-import os, sys, time, signal, argparse, shlex
+import os, sys, time, signal, argparse
 import socket, select, subprocess, configparser, errno
 
 DEFAULT_CFG = os.path.join(os.environ["HOME"], ".galapix", "galagroup.cfg")
@@ -36,7 +36,24 @@ def build_sdl_command(dbp, geom, title):
     ]
 
 
-def build_py_command(dbp, geom, title, pyenv_env, patterns,
+def pyenv_environ(pyenv_env):
+    pyenv_root = os.environ.get("PYENV_ROOT", os.path.expanduser("~/.pyenv"))
+    venv_dir = os.path.join(pyenv_root, "versions", pyenv_env)
+    venv_bin = os.path.join(venv_dir, "bin")
+
+    if not os.path.isdir(venv_bin):
+        print(f"pyenv environment not found: {venv_bin}", file=sys.stderr)
+        sys.exit(1)
+
+    env = os.environ.copy()
+    env["PYENV_ROOT"] = pyenv_root
+    env["VIRTUAL_ENV"] = venv_dir
+    env["PATH"] = venv_bin + os.pathsep + env.get("PATH", "")
+    env.pop("PYTHONHOME", None)
+    return env
+
+
+def build_py_command(dbp, geom, title, patterns,
                      sort=DEFAULT_PY_SORT, background=DEFAULT_PY_BACKGROUND,
                      selection_border=DEFAULT_PY_SELECTION_BORDER,
                      spacing=DEFAULT_PY_SPACING):
@@ -58,28 +75,22 @@ def build_py_command(dbp, geom, title, pyenv_env, patterns,
         "--geometry", geom,
         "--title", title,
     ])
-
-    shell_lines = [
-        'export PYENV_ROOT="$HOME/.pyenv"',
-        'command -v pyenv >/dev/null || export PATH="$PYENV_ROOT/bin:$PATH"',
-        'eval "$(pyenv init -)"',
-        'pyenv activate %s' % shlex.quote(pyenv_env),
-        "exec " + " ".join(shlex.quote(part) for part in cmd),
-    ]
-    return ["/bin/bash", "-lc", "\n".join(shell_lines)]
+    return cmd
 
 
 def start(dbp, geom, title, backend, pyenv_env, patterns,
           sort=DEFAULT_PY_SORT, background=DEFAULT_PY_BACKGROUND,
           selection_border=DEFAULT_PY_SELECTION_BORDER, spacing=DEFAULT_PY_SPACING):
     if backend == "py":
-        cmd = build_py_command(dbp, geom, title, pyenv_env, patterns,
+        cmd = build_py_command(dbp, geom, title, patterns,
                                sort=sort, background=background,
                                selection_border=selection_border, spacing=spacing)
+        env = pyenv_environ(pyenv_env)
     else:
         cmd = build_sdl_command(dbp, geom, title)
+        env = None
 
-    return subprocess.Popen(cmd, preexec_fn=os.setpgrp)
+    return subprocess.Popen(cmd, env=env, preexec_fn=os.setpgrp)
 
 def main():
     parser = argparse.ArgumentParser()
