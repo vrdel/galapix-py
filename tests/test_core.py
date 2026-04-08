@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import importlib
 import io
+import sys
 import tempfile
 import threading
 import time
@@ -1299,6 +1301,282 @@ class GalapixPyCoreTests(unittest.TestCase):
 
     def test_filename_overlay_rect_skips_very_narrow_images(self) -> None:
         self.assertIsNone(filename_overlay_rect(100.0, 200.0, 130.0, 80.0, 24.0))
+
+
+class CliViewTests(unittest.TestCase):
+    def test_cli_view_parse_geometry(self) -> None:
+        from galapix_py.cli_view import parse_geometry
+
+        self.assertEqual(parse_geometry("1920x1080"), (1920, 1080))
+
+    def test_cli_view_parse_background_color_with_hash(self) -> None:
+        from galapix_py.cli_view import parse_background_color
+
+        self.assertEqual(
+            parse_background_color("#4b5262"),
+            (0x4B / 255.0, 0x52 / 255.0, 0x62 / 255.0, 1.0),
+        )
+
+    def test_cli_view_parse_background_color_without_hash(self) -> None:
+        from galapix_py.cli_view import parse_background_color
+
+        self.assertEqual(
+            parse_background_color("B02A37"),
+            (0xB0 / 255.0, 0x2A / 255.0, 0x37 / 255.0, 1.0),
+        )
+
+    def test_cli_view_parse_background_color_rejects_short(self) -> None:
+        from galapix_py.cli_view import parse_background_color
+
+        with self.assertRaises(Exception):
+            parse_background_color("fff")
+
+    def test_cli_view_accepts_all_flags(self) -> None:
+        import sys
+        from unittest.mock import patch as _patch
+
+        from galapix_py.cli_view import main
+
+        test_args = [
+            "galapix-view",
+            "-d", "/tmp/test-db",
+            "-t", "8",
+            "-p", "sample",
+            "--ignore-pattern-case",
+            "--sort", "mtime-reverse",
+            "--geometry", "1920x1080",
+            "--spacing", "3",
+            "--background-color", "#4b5262",
+            "--selection-border-color", "#B02A37",
+            "--show-filenames",
+            "--memory-only",
+            "-r", "test title",
+            "/tmp/images",
+        ]
+
+        captured = {}
+
+        def fake_view(self, paths, patterns=()):
+            captured["options"] = self.options
+            captured["paths"] = list(paths)
+            captured["patterns"] = list(patterns)
+
+        with _patch.object(sys, "argv", test_args), \
+             _patch("galapix_py.app.GalapixApp.view", fake_view):
+            main()
+
+        opts = captured["options"]
+        self.assertEqual(opts.threads, 8)
+        self.assertTrue(opts.ignore_pattern_case)
+        self.assertEqual(opts.sort, "mtime-reverse")
+        self.assertEqual(opts.width, 1920)
+        self.assertEqual(opts.height, 1080)
+        self.assertEqual(opts.spacing, 3)
+        self.assertTrue(opts.show_filenames)
+        self.assertTrue(opts.memory_only)
+        self.assertEqual(opts.title, "test title")
+        self.assertEqual(captured["patterns"], ["sample"])
+
+    def test_cli_view_defaults(self) -> None:
+        import sys
+        from unittest.mock import patch as _patch
+
+        from galapix_py.cli_view import main
+
+        captured = {}
+
+        def fake_view(self, paths, patterns=()):
+            captured["options"] = self.options
+
+        with _patch.object(sys, "argv", ["galapix-view"]), \
+             _patch("galapix_py.app.GalapixApp.view", fake_view):
+            main()
+
+        opts = captured["options"]
+        self.assertEqual(opts.threads, 4)
+        self.assertEqual(opts.width, 1280)
+        self.assertEqual(opts.height, 720)
+        self.assertFalse(opts.fullscreen)
+        self.assertFalse(opts.show_filenames)
+        self.assertFalse(opts.memory_only)
+        self.assertIsNone(opts.sort)
+        self.assertIsNone(opts.background_color)
+
+    def test_cli_view_keyboard_interrupt_returns_130(self) -> None:
+        import sys
+        from unittest.mock import patch as _patch
+
+        from galapix_py.cli_view import main
+
+        def raise_interrupt(self, paths, patterns=()):
+            raise KeyboardInterrupt()
+
+        with _patch.object(sys, "argv", ["galapix-view"]), \
+             _patch("galapix_py.app.GalapixApp.view", raise_interrupt):
+            rc = main()
+
+        self.assertEqual(rc, 130)
+
+
+class CliPrepareTests(unittest.TestCase):
+    def test_cli_prepare_accepts_all_flags(self) -> None:
+        import sys
+        from unittest.mock import patch as _patch
+
+        from galapix_py.cli_prepare import main
+
+        test_args = [
+            "galapix-prepare",
+            "-d", "/tmp/test-db",
+            "-t", "8",
+            "-p", "sample",
+            "--ignore-pattern-case",
+            "--jpeg-quality", "72",
+            "/tmp/images",
+        ]
+
+        captured = {}
+
+        def fake_prepare(self, paths, patterns=()):
+            captured["options"] = self.options
+            captured["paths"] = list(paths)
+            captured["patterns"] = list(patterns)
+            return True
+
+        with _patch.object(sys, "argv", test_args), \
+             _patch("galapix_py.app.GalapixApp.prepare", fake_prepare):
+            rc = main()
+
+        self.assertEqual(rc, 0)
+        opts = captured["options"]
+        self.assertEqual(opts.threads, 8)
+        self.assertEqual(opts.jpeg_quality, 72)
+        self.assertTrue(opts.ignore_pattern_case)
+        self.assertEqual(captured["patterns"], ["sample"])
+
+    def test_cli_prepare_clamps_jpeg_quality(self) -> None:
+        import sys
+        from unittest.mock import patch as _patch
+
+        from galapix_py.cli_prepare import main
+
+        captured = {}
+
+        def fake_prepare(self, paths, patterns=()):
+            captured["options"] = self.options
+            return True
+
+        with _patch.object(sys, "argv", ["galapix-prepare", "--jpeg-quality", "200", "/tmp"]), \
+             _patch("galapix_py.app.GalapixApp.prepare", fake_prepare):
+            main()
+
+        self.assertEqual(captured["options"].jpeg_quality, 100)
+
+    def test_cli_prepare_returns_1_when_nothing_stored(self) -> None:
+        import sys
+        from unittest.mock import patch as _patch
+
+        from galapix_py.cli_prepare import main
+
+        def fake_prepare(self, paths, patterns=()):
+            return False
+
+        with _patch.object(sys, "argv", ["galapix-prepare", "/tmp"]), \
+             _patch("galapix_py.app.GalapixApp.prepare", fake_prepare):
+            rc = main()
+
+        self.assertEqual(rc, 1)
+
+    def test_cli_prepare_keyboard_interrupt_returns_130(self) -> None:
+        import sys
+        from unittest.mock import patch as _patch
+
+        from galapix_py.cli_prepare import main
+
+        def raise_interrupt(self, paths, patterns=()):
+            raise KeyboardInterrupt()
+
+        with _patch.object(sys, "argv", ["galapix-prepare", "/tmp"]), \
+             _patch("galapix_py.app.GalapixApp.prepare", raise_interrupt):
+            rc = main()
+
+        self.assertEqual(rc, 130)
+
+    def test_cli_prepare_requires_paths(self) -> None:
+        import sys
+        from unittest.mock import patch as _patch
+
+        from galapix_py.cli_prepare import main
+
+        with _patch.object(sys, "argv", ["galapix-prepare"]):
+            with self.assertRaises(SystemExit) as ctx:
+                main()
+            self.assertEqual(ctx.exception.code, 2)
+
+    def test_cli_prepare_integration(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            import sys
+            from unittest.mock import patch as _patch
+
+            from galapix_py.cli_prepare import main
+
+            base = Path(tmpdir)
+            image_path = make_test_jpeg(base, width=320, height=240)
+
+            test_args = [
+                "galapix-prepare",
+                "-d", str(base / "db"),
+                str(image_path),
+            ]
+
+            with _patch.object(sys, "argv", test_args):
+                rc = main()
+
+            self.assertEqual(rc, 0)
+
+            database = Database(base / "db")
+            try:
+                self.assertIsNotNone(database.get_file_entry(str(image_path.resolve())))
+            finally:
+                database.close()
+
+
+def _load_galapix_exe():
+    script = Path(__file__).resolve().parent.parent / "scripts" / "galapix-exe.py"
+    spec = importlib.util.spec_from_file_location("galapix_exe", script)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class GalapixExeTests(unittest.TestCase):
+    def test_command_map_entries(self) -> None:
+        mod = _load_galapix_exe()
+        self.assertEqual(mod.COMMAND_MAP["view"], "galapix-view")
+        self.assertEqual(mod.COMMAND_MAP["prepare"], "galapix-prepare")
+        self.assertEqual(mod.COMMAND_MAP["clean"], "galapix-clean")
+
+    def test_build_parser_has_pyenv_env_flag(self) -> None:
+        mod = _load_galapix_exe()
+        parser = mod.build_parser()
+        args = parser.parse_args(["--pyenv-env", "custom-env", "view"])
+        self.assertEqual(args.pyenv_env, "custom-env")
+        self.assertEqual(args.command, "view")
+
+    def test_build_parser_defaults(self) -> None:
+        mod = _load_galapix_exe()
+        parser = mod.build_parser()
+        args = parser.parse_args(["python", "-c", "pass"])
+        self.assertEqual(args.pyenv_env, "galapix-py")
+        self.assertEqual(args.command, "python")
+        self.assertEqual(args.args, ["-c", "pass"])
+
+    def test_build_parser_remainder_args(self) -> None:
+        mod = _load_galapix_exe()
+        parser = mod.build_parser()
+        args = parser.parse_args(["prepare", "-t", "8", "/tmp/images"])
+        self.assertEqual(args.command, "prepare")
+        self.assertEqual(args.args, ["-t", "8", "/tmp/images"])
 
 
 if __name__ == "__main__":
