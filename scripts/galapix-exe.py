@@ -8,12 +8,27 @@ import sys
 
 
 PYENV_ENV = "galapix-py"
+DEFAULT_SORT = "mtime-reverse"
+DEFAULT_BACKGROUND = "4b5262"
+DEFAULT_SELECTION_BORDER = "B02A37"
+DEFAULT_SPACING = "3"
+DEFAULT_GEOMETRY = "1600x1000"
 
 COMMAND_MAP = {
     "view": "galapix-view",
     "prepare": "galapix-prepare",
     "clean": "galapix-clean",
 }
+
+VIEW_DEFAULTS = [
+    "--sort", DEFAULT_SORT,
+    "--background-color", DEFAULT_BACKGROUND,
+    "--selection-border-color", DEFAULT_SELECTION_BORDER,
+    "--spacing", DEFAULT_SPACING,
+    "--geometry", DEFAULT_GEOMETRY,
+    "--show-filenames",
+    "--ignore-pattern-case",
+]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -74,7 +89,8 @@ def main() -> int:
 
     mapped = COMMAND_MAP.get(parsed.command)
     executable = mapped if mapped is not None else parsed.command
-    argv = [executable] + parsed.args
+    extra = VIEW_DEFAULTS if parsed.command == "view" else []
+    argv = [executable] + extra + parsed.args
 
     try:
         result = subprocess.run(argv, env=env)
