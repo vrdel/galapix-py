@@ -125,6 +125,7 @@ Navigation:
 - `Ctrl+w` / `Ctrl+s`: faster zoom
 - `h`: reset view
 - `x`: zoom to selection, or whole workspace if nothing is selected
+- `n`: zoom to original size (1:1 pixel mapping) centered on selected image
 
 Selection and editing:
 

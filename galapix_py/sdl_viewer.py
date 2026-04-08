@@ -264,6 +264,9 @@ class SDLViewer:
             elif sym == sdl2.SDLK_x:
                 self.viewer.zoom_to_selection()
                 self.viewer.request_redraw()
+            elif sym == sdl2.SDLK_n:
+                self.viewer.zoom_to_original()
+                self.viewer.request_redraw()
             elif sym == sdl2.SDLK_b:
                 shift = bool(event.key.keysym.mod & sdl2.KMOD_SHIFT)
                 self.viewer.cycle_background(backwards=shift)

@@ -307,6 +307,22 @@ class Viewer:
         self.state.zoom_to_rect(self.viewport_width, self.viewport_height, left, top, right, bottom)
         self.needs_redraw = True
 
+    def zoom_to_original(self) -> None:
+        selected = self.workspace.selected_images()
+        if selected:
+            image = selected[0]
+        elif self.workspace.images:
+            image = self.workspace.images[0]
+        else:
+            return
+        scale = 1.0 / image.placement.scale
+        cx = image.placement.x
+        cy = image.placement.y
+        self.state.target_scale = scale
+        self.state.target_offset_x = (self.viewport_width / 2.0) - cx * scale
+        self.state.target_offset_y = (self.viewport_height / 2.0) - cy * scale
+        self.needs_redraw = True
+
     def save_workspace(self, path: str = WORKSPACE_DUMP_PATH) -> None:
         self.workspace.save(path)
 
