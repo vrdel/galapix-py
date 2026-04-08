@@ -76,7 +76,10 @@ def main() -> int:
     executable = mapped if mapped is not None else parsed.command
     argv = [executable] + parsed.args
 
-    result = subprocess.run(argv, env=env)
+    try:
+        result = subprocess.run(argv, env=env)
+    except KeyboardInterrupt:
+        return 130
     return result.returncode
 
 
