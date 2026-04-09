@@ -66,6 +66,7 @@ Available on `galapix-view` and `galapix-py view`:
 - `--sort {name,name-reverse,mtime,mtime-reverse}`: startup ordering for direct image views
 - `--images-per-row N`: wrap after `N` images; default is auto-wrap into a square-ish grid
 - `--spacing N`: row spacing multiplier, where `1` is the default gap
+- `--case-insensitive-sort`: make name sorting (key `1`) case-insensitive
 - `--background-color RRGGBB`: hex background color (e.g. `4b5262`)
 - `--selection-border-color RRGGBB`: hex selection outline color (e.g. `B02A37`)
 - `--memory-only`: bypass the SQLite tile cache and generate tiles in memory
