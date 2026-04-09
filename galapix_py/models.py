@@ -58,6 +58,7 @@ class ViewerOptions:
     spacing: int = 1
     background_color: tuple[float, float, float, float] | None = None
     selection_border_color: tuple[float, float, float, float] | None = None
+    case_insensitive_sort: bool = False
     show_filenames: bool = False
     memory_only: bool = False
     validate_render: bool = False

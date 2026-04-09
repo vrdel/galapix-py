@@ -29,6 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
             cmd.add_argument("--background-color", type=parse_background_color, default=None)
             cmd.add_argument("--selection-border-color", type=parse_background_color, default=None)
             cmd.add_argument("--memory-only", action="store_true")
+            cmd.add_argument("--case-insensitive-sort", action="store_true")
             cmd.add_argument("--show-filenames", action="store_true")
         elif name == "prepare":
             cmd.add_argument("--jpeg-quality", type=int, default=85)
@@ -103,6 +104,7 @@ def main() -> int:
         spacing=max(1, getattr(args, "spacing", 1)),
         background_color=getattr(args, "background_color", None),
         selection_border_color=getattr(args, "selection_border_color", None),
+        case_insensitive_sort=getattr(args, "case_insensitive_sort", False),
         show_filenames=getattr(args, "show_filenames", False),
         memory_only=getattr(args, "memory_only", False),
         validate_render=args.validate_render,

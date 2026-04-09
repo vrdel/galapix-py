@@ -48,8 +48,11 @@ class Workspace:
     def is_animated(self) -> bool:
         return self.animation_progress < 1.0
 
-    def sort_by_url(self, reverse: bool = False) -> None:
-        self.images.sort(key=lambda image: image.url, reverse=reverse)
+    def sort_by_url(self, reverse: bool = False, case_insensitive: bool = False) -> None:
+        if case_insensitive:
+            self.images.sort(key=lambda image: image.url.lower(), reverse=reverse)
+        else:
+            self.images.sort(key=lambda image: image.url, reverse=reverse)
 
     def sort_by_name(self, reverse: bool = False) -> None:
         def name_key(image: Image) -> tuple[str, str]:

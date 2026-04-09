@@ -282,7 +282,7 @@ class SDLViewer:
                 self.viewer.refresh_selection()
             elif sym == sdl2.SDLK_1:
                 shift = bool(event.key.keysym.mod & sdl2.KMOD_SHIFT)
-                self.viewer.workspace.sort_by_url(reverse=shift)
+                self.viewer.workspace.sort_by_url(reverse=shift, case_insensitive=self.viewer.options.case_insensitive_sort)
                 self.viewer.workspace.layout_row(
                     spacing=40.0 * max(1, self.viewer.options.spacing),
                     max_per_row=self.viewer.options.images_per_row,
