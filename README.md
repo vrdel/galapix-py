@@ -24,7 +24,19 @@ GalapixApp
 
 ## Commands
 
-Main entrypoints:
+### Standalone entrypoints
+
+After installation, these commands are available directly:
+
+```bash
+galapix-view [options] <paths...>
+galapix-prepare [options] <paths...>
+galapix-clean [options] [paths...]
+```
+
+### Subcommand entrypoint
+
+The `galapix-py` command groups all functionality under subcommands:
 
 ```bash
 galapix-py view [options] <paths...>
@@ -33,27 +45,42 @@ galapix-py selfcheck <paths...>
 galapix-py list
 galapix-py check
 galapix-py cleanup [paths...]
-galapix-clean [paths...]
 ```
 
-Global options:
+### Global options
+
+Available on all commands:
+
 - `-d`, `--database`: cache root, default `~/.galapix-py`
 - `-t`, `--threads`: worker count for prepare / background jobs
 - `-p`, `--pattern`: regex path filter, can be passed multiple times
-- `-r`, `--title`: window title
-- `--validate-render`: exit after the first textured frame in a live desktop session
-- `--validation-timeout`: render validation timeout in seconds
+- `--ignore-pattern-case`: make `--pattern` filters case-insensitive
 
-`view` options:
+### View options
+
+Available on `galapix-view` and `galapix-py view`:
+
+- `-r`, `--title`: window title
 - `-g`, `--geometry WxH`: initial window size
 - `-f`, `--fullscreen`: start fullscreen
 - `--sort {name,name-reverse,mtime,mtime-reverse}`: startup ordering for direct image views
 - `--images-per-row N`: wrap after `N` images; default is auto-wrap into a square-ish grid
 - `--spacing N`: row spacing multiplier, where `1` is the default gap
+- `--background-color RRGGBB`: hex background color (e.g. `4b5262`)
+- `--selection-border-color RRGGBB`: hex selection outline color (e.g. `B02A37`)
 - `--memory-only`: bypass the SQLite tile cache and generate tiles in memory
 - `--show-filenames`: draw filename labels above visible images
+- `--validate-render`: exit after the first textured frame in a live desktop session
+- `--validation-timeout`: render validation timeout in seconds
 
-Notes:
+### Prepare options
+
+Available on `galapix-prepare` and `galapix-py prepare`:
+
+- `--jpeg-quality N`: JPEG quality for cached tiles (default 85)
+
+### Notes
+
 - `view` accepts image paths, directories, and saved workspace files ending in `.galapix`
 - `prepare` builds the full tile pyramid into the SQLite cache
 - `cleanup` / `galapix-clean` remove the whole cache if no paths are provided, or only matching cached images if paths/directories are provided
@@ -103,13 +130,13 @@ first textured frame:
 Typical prepare run:
 
 ```bash
-.uv-venv/bin/python -m galapix_py.cli prepare /path/to/images
+galapix-prepare /path/to/images
 ```
 
 Typical view run:
 
 ```bash
-.uv-venv/bin/python -m galapix_py.cli view --sort name --show-filenames /path/to/images
+galapix-view --sort name --show-filenames /path/to/images
 ```
 
 ## Viewer Controls
