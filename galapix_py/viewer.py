@@ -174,6 +174,16 @@ class LabelTexture:
     height: int
 
 
+@dataclass(slots=True)
+class SavedPlacement:
+    x: float
+    y: float
+    scale: float
+    target_x: float
+    target_y: float
+    target_scale: float
+
+
 def overlay_label_text(path: str, max_chars: int = 48) -> str:
     name = Path(path).name or path
     if len(name) <= max_chars:
@@ -272,6 +282,9 @@ class Viewer:
         self.viewport_height = options.height
         self.show_status = True
         self.last_frame_stats = FrameRenderStats()
+        self.search_active = False
+        self.search_query = ""
+        self.search_saved_layout: dict[str, SavedPlacement] = {}
 
     def world_to_screen(self, x: float, y: float) -> tuple[float, float]:
         return (
@@ -294,12 +307,12 @@ class Viewer:
         self.needs_redraw = True
 
     def zoom_to_workspace(self) -> None:
-        left, top, right, bottom = self.workspace.bounding_rect()
+        left, top, right, bottom = self.workspace.filtered_bounding_rect()
         self.state.zoom_to_rect(self.viewport_width, self.viewport_height, left, top, right, bottom)
         self.needs_redraw = True
 
     def zoom_to_selection(self) -> None:
-        rect = self.workspace.selection_bounding_rect()
+        rect = self.workspace.filtered_selection_bounding_rect()
         if rect is None:
             self.zoom_to_workspace()
             return
@@ -358,7 +371,12 @@ class Viewer:
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         clip = self.state.world_rect(self.viewport_width, self.viewport_height)
+        active_images = self.workspace.filtered_images()
+        active_ids = {id(image) for image in active_images}
         for image in self.workspace.images:
+            if id(image) not in active_ids and image.visible:
+                image.on_leave_screen()
+        for image in active_images:
             if not image.overlaps(clip):
                 if image.visible:
                     image.on_leave_screen()
@@ -367,6 +385,8 @@ class Viewer:
             if not image.visible:
                 image.on_enter_screen()
             self._draw_image(image, stats)
+        if self.search_active:
+            self._draw_search_overlay()
         self.texture_cache.end_frame()
         self.needs_redraw = False
         self.last_frame_stats = stats
@@ -395,17 +415,21 @@ class Viewer:
         self.request_redraw()
 
     def status_text(self) -> str:
-        selected = len(self.workspace.selected_images())
-        visible = sum(1 for image in self.workspace.images if image.visible)
+        filtered = self.workspace.filtered_images()
+        selected = len(self.workspace.filtered_selected_images())
+        visible = sum(1 for image in filtered if image.visible)
         textures = len(self.texture_cache.textures)
-        return (
+        parts = [
             f"{self.options.title} | "
             f"zoom={self.state.scale:.2f} "
             f"images={len(self.workspace.images)} "
             f"selected={selected} "
             f"visible={visible} "
             f"textures={textures}"
-        )
+        ]
+        if self.workspace.has_active_search():
+            parts.append(f' filtered={len(filtered)} search="{self.search_query}"')
+        return "".join(parts)
 
     def clear_all_caches(self) -> None:
         for image in self.workspace.images:
@@ -428,11 +452,14 @@ class Viewer:
         visible = self.workspace.visible_images(clip)
         print("Workspace Info:")
         print(f"  images: {len(self.workspace.images)}")
-        print(f"  selected: {len(self.workspace.selected_images())}")
+        print(f"  selected: {len(self.workspace.filtered_selected_images())}")
         print(f"  visible: {len(visible)}")
         print(f"  zoom: {self.state.scale:.3f}")
         print(f"  offset: ({self.state.offset_x:.1f}, {self.state.offset_y:.1f})")
         print(f"  textures: {len(self.texture_cache.textures)}")
+        if self.workspace.has_active_search():
+            print(f'  search: "{self.search_query}"')
+            print(f"  filtered: {len(self.workspace.filtered_images())}")
 
     def _get_label_texture(self, text: str) -> LabelTexture:
         label = self.label_textures.get(text)
@@ -484,6 +511,53 @@ class Viewer:
         self._draw_textured_rect(label.texture_id, label_left, label_top, label_right, label_bottom, 0.0, 0.0, u1, 1.0)
         glColor3f(1.0, 1.0, 1.0)
 
+    def _draw_search_overlay(self) -> None:
+        title = self._get_label_texture("Search")
+        prompt = self._get_label_texture("Filename contains:")
+        query = self._get_label_texture(self.search_query or " ")
+        count = self._get_label_texture(
+            f"{len(self.workspace.filtered_images())} / {len(self.workspace.images)} matches"
+        )
+        pad = 16.0
+        gap = 10.0
+        line_gap = 8.0
+        query_box_pad = 6.0
+        width = max(title.width, prompt.width, query.width + 20, count.width) + pad * 2.0
+        height = (
+            pad * 2.0
+            + title.height
+            + gap
+            + prompt.height
+            + line_gap
+            + query.height
+            + query_box_pad * 2.0
+            + gap
+            + count.height
+        )
+        left = (self.viewport_width - width) / 2.0
+        top = max(24.0, (self.viewport_height - height) / 4.0)
+        right = left + width
+        bottom = top + height
+        self._draw_solid_rect(left, top, right, bottom, (0.08, 0.08, 0.08))
+        y = top + pad
+        self._draw_text_label(title, left + pad, y)
+        y += title.height + gap
+        self._draw_text_label(prompt, left + pad, y)
+        y += prompt.height + line_gap
+        query_top = y
+        query_bottom = query_top + query.height + query_box_pad * 2.0
+        self._draw_solid_rect(left + pad, query_top, right - pad, query_bottom, (0.0, 0.0, 0.0))
+        self._draw_text_label(query, left + pad + query_box_pad, query_top + query_box_pad)
+        cursor_x = left + pad + query_box_pad + query.width + 2.0
+        self._draw_solid_rect(cursor_x, query_top + query_box_pad, cursor_x + 2.0, query_bottom - query_box_pad, (1.0, 1.0, 1.0))
+        y = query_bottom + gap
+        self._draw_text_label(count, left + pad, y)
+
+    def _draw_text_label(self, label: LabelTexture, left: float, top: float) -> None:
+        glColor4f(1.0, 1.0, 1.0, 1.0)
+        self._draw_textured_rect(label.texture_id, left, top, left + label.width, top + label.height)
+        glColor3f(1.0, 1.0, 1.0)
+
     def _draw_textured_rect(
         self,
         texture: int,
@@ -524,6 +598,89 @@ class Viewer:
         world_x, world_y = self.state.screen_to_world(screen_x, screen_y)
         self.workspace.select_at(world_x, world_y)
         self.request_redraw()
+
+    def open_search(self) -> None:
+        self.search_active = True
+        self.request_redraw()
+
+    def close_search(self, clear: bool = False) -> None:
+        self.search_active = False
+        if clear:
+            self.set_search_query("")
+        self.request_redraw()
+
+    def append_search_text(self, text: str) -> None:
+        if text:
+            self.set_search_query(self.search_query + text)
+
+    def backspace_search(self) -> None:
+        if self.search_query:
+            self.set_search_query(self.search_query[:-1])
+
+    def has_active_filter(self) -> bool:
+        return self.workspace.has_active_search()
+
+    def set_search_query(self, query: str) -> None:
+        previous_query = self.search_query
+        normalized = query
+        if normalized == previous_query:
+            return
+        if normalized and not previous_query:
+            self._capture_search_layout()
+        self.search_query = normalized
+        self.workspace.set_search_query(normalized)
+        self._clear_filtered_out_selection()
+        if normalized:
+            self._layout_search_results()
+        elif previous_query:
+            self._restore_search_layout()
+        self.request_redraw()
+
+    def _capture_search_layout(self) -> None:
+        self.search_saved_layout = {
+            image.url: SavedPlacement(
+                x=image.placement.x,
+                y=image.placement.y,
+                scale=image.placement.scale,
+                target_x=image.placement.target_x,
+                target_y=image.placement.target_y,
+                target_scale=image.placement.target_scale,
+            )
+            for image in self.workspace.images
+        }
+
+    def _restore_search_layout(self) -> None:
+        for image in self.workspace.images:
+            saved = self.search_saved_layout.get(image.url)
+            if saved is None:
+                continue
+            image.set_absolute(saved.x, saved.y, saved.scale)
+            image.placement.target_x = saved.target_x
+            image.placement.target_y = saved.target_y
+            image.placement.target_scale = saved.target_scale
+            image.placement.last_x = saved.x
+            image.placement.last_y = saved.y
+            image.placement.last_scale = saved.scale
+        self.search_saved_layout.clear()
+        self.workspace.animation_progress = 1.0
+        self.zoom_to_workspace()
+
+    def _layout_search_results(self) -> None:
+        filtered = self.workspace.filtered_images()
+        if not filtered:
+            self.workspace.animation_progress = 1.0
+            return
+        self.workspace.layout_row(
+            spacing=40.0 * max(1, self.options.spacing),
+            max_per_row=self.options.images_per_row,
+            images=filtered,
+        )
+
+    def _clear_filtered_out_selection(self) -> None:
+        filtered_ids = {id(image) for image in self.workspace.filtered_images()}
+        for image in self.workspace.images:
+            if image.selected and id(image) not in filtered_ids:
+                image.selected = False
 
     def _draw_image(self, image: Image, stats: FrameRenderStats) -> None:
         img_left, img_top, img_right, img_bottom = image.rect()

@@ -572,6 +572,35 @@ class GalapixPyCoreTests(unittest.TestCase):
             ["alpha.jpg", "bravo.jpg", "zulu.jpg"],
         )
 
+    def test_workspace_filtered_images_match_basename_case_insensitively(self) -> None:
+        workspace = Workspace()
+        workspace.add_image(Image("/tmp/zebra/Alpha.jpg"))
+        workspace.add_image(Image("/tmp/able/bravo-cat.png"))
+        workspace.add_image(Image("/tmp/beta/dog.jpeg"))
+
+        workspace.set_search_query("CAT")
+
+        self.assertEqual(
+            [Path(image.url).name for image in workspace.filtered_images()],
+            ["bravo-cat.png"],
+        )
+
+    def test_workspace_select_at_ignores_filtered_out_images(self) -> None:
+        workspace = Workspace()
+        alpha = Image("/tmp/alpha.jpg")
+        alpha.set_absolute(50.0, 50.0, 1.0)
+        bravo = Image("/tmp/bravo.jpg")
+        bravo.set_absolute(50.0, 50.0, 1.0)
+        workspace.add_image(alpha)
+        workspace.add_image(bravo)
+        workspace.set_search_query("alpha")
+
+        selected = workspace.select_at(50.0, 50.0)
+
+        self.assertIs(selected, alpha)
+        self.assertTrue(alpha.selected)
+        self.assertFalse(bravo.selected)
+
     def test_workspace_layout_row_auto_wraps_nine_images_to_three_per_row(self) -> None:
         workspace = Workspace()
         for index in range(9):
@@ -1235,6 +1264,111 @@ class GalapixPyCoreTests(unittest.TestCase):
         self.assertEqual(move_calls, [(48.0, 0.0)])
         self.assertTrue(viewer.redraw_requested)
 
+    def test_keyboard_state_is_ignored_while_search_is_active(self) -> None:
+        zoom_calls: list[tuple[float, float, float]] = []
+
+        class DummyState:
+            def zoom(self, factor: float, x: float, y: float) -> None:
+                zoom_calls.append((factor, x, y))
+
+        class DummyViewer:
+            def __init__(self) -> None:
+                self.state = DummyState()
+                self.viewport_width = 400
+                self.viewport_height = 300
+                self.redraw_requested = False
+                self.search_active = True
+
+            def request_redraw(self) -> None:
+                self.redraw_requested = True
+
+        viewer = DummyViewer()
+        sdl_viewer = SDLViewer(viewer)
+        sdl_viewer._process_keyboard_state()
+
+        self.assertEqual(zoom_calls, [])
+        self.assertFalse(viewer.redraw_requested)
+
+    def test_keydown_f_opens_search_and_starts_text_input(self) -> None:
+        class DummyViewer:
+            def __init__(self) -> None:
+                self.search_active = False
+                self.opened = False
+
+            def open_search(self) -> None:
+                self.search_active = True
+                self.opened = True
+
+        viewer = DummyViewer()
+        sdl_viewer = SDLViewer(viewer)
+        event = type("Event", (), {})()
+        event.type = 1
+        event.key = type("Key", (), {"keysym": type("Keysym", (), {"sym": 102, "mod": 0})()})()
+
+        with (
+            patch("galapix_py.sdl_viewer.sdl2.SDL_KEYDOWN", 1),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_f", 102),
+            patch("galapix_py.sdl_viewer.sdl2.SDL_StartTextInput") as start_text_input,
+        ):
+            sdl_viewer._process_event(event)
+
+        self.assertTrue(viewer.opened)
+        start_text_input.assert_called_once_with()
+
+    def test_text_input_appends_search_query_immediately(self) -> None:
+        class DummyViewer:
+            def __init__(self) -> None:
+                self.search_active = True
+                self.received: list[str] = []
+
+            def append_search_text(self, text: str) -> None:
+                self.received.append(text)
+
+        viewer = DummyViewer()
+        sdl_viewer = SDLViewer(viewer)
+        event = type("Event", (), {})()
+        event.type = 2
+        event.text = type("Text", (), {"text": b"cat\x00" + (b"\x00" * 28)})()
+
+        with patch("galapix_py.sdl_viewer.sdl2.SDL_TEXTINPUT", 2):
+            sdl_viewer._process_event(event)
+
+        self.assertEqual(viewer.received, ["cat"])
+
+    def test_search_keydown_handles_backspace_enter_and_escape(self) -> None:
+        actions: list[str] = []
+
+        class DummyViewer:
+            def __init__(self) -> None:
+                self.search_active = True
+
+            def backspace_search(self) -> None:
+                actions.append("backspace")
+
+            def close_search(self, clear: bool = False) -> None:
+                actions.append(f"close:{clear}")
+                self.search_active = False
+
+        viewer = DummyViewer()
+        sdl_viewer = SDLViewer(viewer)
+
+        with (
+            patch("galapix_py.sdl_viewer.sdl2.SDL_KEYDOWN", 1),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_BACKSPACE", 8),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_RETURN", 13),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_ESCAPE", 27),
+            patch("galapix_py.sdl_viewer.sdl2.SDL_StopTextInput") as stop_text_input,
+        ):
+            for sym in (8, 13, 27):
+                event = type("Event", (), {})()
+                event.type = 1
+                event.key = type("Key", (), {"keysym": type("Keysym", (), {"sym": sym, "mod": 0})()})()
+                viewer.search_active = True
+                sdl_viewer._process_event(event)
+
+        self.assertEqual(actions, ["backspace", "close:False", "close:True"])
+        self.assertEqual(stop_text_input.call_count, 2)
+
     def test_configure_texture_upload_state_sets_alignment_and_clamp(self) -> None:
         with (
             patch("galapix_py.viewer.glPixelStorei") as pixel_store,
@@ -1277,6 +1411,19 @@ class GalapixPyCoreTests(unittest.TestCase):
         )
         viewer = Viewer(options, Workspace(), None)
         self.assertEqual(viewer.selection_outline_color(), (0.7, 0.8, 0.9))
+
+    def test_viewer_status_text_reports_search_filter(self) -> None:
+        workspace = Workspace()
+        workspace.add_image(Image("/tmp/alpha.jpg"))
+        workspace.add_image(Image("/tmp/bravo-cat.jpg"))
+        options = ViewerOptions(database=Path("/tmp/db"))
+        viewer = Viewer(options, workspace, None)
+
+        viewer.set_search_query("cat")
+        text = viewer.status_text()
+
+        self.assertIn('filtered=1', text)
+        self.assertIn('search="cat"', text)
 
     def test_overlay_label_text_uses_basename_and_truncates(self) -> None:
         self.assertEqual(overlay_label_text("/tmp/example.jpg"), "example.jpg")

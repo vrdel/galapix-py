@@ -12,6 +12,7 @@ from .image import Image
 class Workspace:
     images: list[Image] = field(default_factory=list)
     animation_progress: float = 1.0
+    search_query: str = ""
 
     def add_image(self, image: Image) -> None:
         self.images.append(image)
@@ -24,7 +25,7 @@ class Workspace:
             image.selected = False
 
     def get_image_at(self, x: float, y: float) -> Image | None:
-        for image in reversed(self.images):
+        for image in reversed(self.filtered_images()):
             if image.contains_point(x, y):
                 return image
         return None
@@ -38,6 +39,28 @@ class Workspace:
 
     def selected_images(self) -> list[Image]:
         return [image for image in self.images if image.selected]
+
+    def filtered_selected_images(self) -> list[Image]:
+        return [image for image in self.filtered_images() if image.selected]
+
+    def set_search_query(self, query: str) -> None:
+        self.search_query = query
+
+    def clear_search(self) -> None:
+        self.search_query = ""
+
+    def has_active_search(self) -> bool:
+        return bool(self.search_query)
+
+    def matches_search(self, image: Image) -> bool:
+        if not self.search_query:
+            return True
+        return self.search_query.casefold() in Path(image.url).name.casefold()
+
+    def filtered_images(self) -> list[Image]:
+        if not self.search_query:
+            return list(self.images)
+        return [image for image in self.images if self.matches_search(image)]
 
     def update(self, delta: float) -> None:
         if self.animation_progress < 1.0:
@@ -118,14 +141,19 @@ class Workspace:
         spacing: float = 40.0,
         target_height: float = 1000.0,
         max_per_row: int | None = None,
+        images: list[Image] | None = None,
     ) -> None:
+        target_images = self.images if images is None else images
+        if not target_images:
+            self.animation_progress = 1.0
+            return
         if max_per_row is None:
-            image_count = len(self.images)
+            image_count = len(target_images)
             if image_count > 2:
                 max_per_row = math.ceil(math.sqrt(image_count))
         y = 0.0
         row_images: list[tuple[Image, float, float]] = []
-        for index, image in enumerate(self.images):
+        for index, image in enumerate(target_images):
             if max_per_row is not None and max_per_row > 0 and index > 0 and index % max_per_row == 0:
                 y += self._layout_row_segment(row_images, y, spacing)
                 row_images = []
@@ -157,17 +185,21 @@ class Workspace:
             row_height = max(row_height, scaled_h)
         return row_height + spacing
 
-    def bounding_rect(self) -> tuple[float, float, float, float]:
-        if not self.images:
+    def bounding_rect(self, images: list[Image] | None = None) -> tuple[float, float, float, float]:
+        target_images = self.images if images is None else images
+        if not target_images:
             return 0.0, 0.0, 1.0, 1.0
-        left, top, right, bottom = self.images[0].rect()
-        for image in self.images[1:]:
+        left, top, right, bottom = target_images[0].rect()
+        for image in target_images[1:]:
             i_left, i_top, i_right, i_bottom = image.rect()
             left = min(left, i_left)
             top = min(top, i_top)
             right = max(right, i_right)
             bottom = max(bottom, i_bottom)
         return left, top, right, bottom
+
+    def filtered_bounding_rect(self) -> tuple[float, float, float, float]:
+        return self.bounding_rect(self.filtered_images())
 
     def selection_bounding_rect(self) -> tuple[float, float, float, float] | None:
         selected = self.selected_images()
@@ -182,5 +214,11 @@ class Workspace:
             bottom = max(bottom, i_bottom)
         return left, top, right, bottom
 
+    def filtered_selection_bounding_rect(self) -> tuple[float, float, float, float] | None:
+        selected = self.filtered_selected_images()
+        if not selected:
+            return None
+        return self.bounding_rect(selected)
+
     def visible_images(self, clip_rect: tuple[float, float, float, float]) -> list[Image]:
-        return [image for image in self.images if image.overlaps(clip_rect)]
+        return [image for image in self.filtered_images() if image.overlaps(clip_rect)]
