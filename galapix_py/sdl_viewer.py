@@ -93,6 +93,7 @@ class SDLViewer:
         self.running = False
         self.mouse_down_pos: tuple[int, int] | None = None
         self._last_title: str | None = None
+        self._suppress_opening_search_text = False
 
     def _ctrl_pressed(self) -> bool:
         mods = sdl2.SDL_GetModState()
@@ -175,11 +176,14 @@ class SDLViewer:
                         raise RuntimeError(timeout_message)
                 sdl2.SDL_Delay(10)
         finally:
+            sdl2.SDL_StopTextInput()
             sdl2.SDL_GL_DeleteContext(self.context)
             sdl2.SDL_DestroyWindow(self.window)
             sdl2.SDL_Quit()
 
     def _process_keyboard_state(self) -> None:
+        if getattr(self.viewer, "search_active", False):
+            return
         numkeys = ctypes.c_int()
         keystate = sdl2.SDL_GetKeyboardState(ctypes.byref(numkeys))
 
@@ -222,7 +226,17 @@ class SDLViewer:
     def _process_event(self, event: sdl2.SDL_Event) -> None:
         if event.type == sdl2.SDL_QUIT:
             self.running = False
+        elif event.type == sdl2.SDL_TEXTINPUT and getattr(self.viewer, "search_active", False):
+            raw = bytes(event.text.text)
+            text = raw.split(b"\0", 1)[0].decode("utf-8", errors="ignore")
+            if self._suppress_opening_search_text and text.casefold() == "f":
+                self._suppress_opening_search_text = False
+                return
+            self._suppress_opening_search_text = False
+            self.viewer.append_search_text(text)
         elif event.type == sdl2.SDL_MOUSEWHEEL:
+            if getattr(self.viewer, "search_active", False):
+                return
             mouse_x, mouse_y = ctypes.c_int(), ctypes.c_int()
             sdl2.SDL_GetMouseState(mouse_x, mouse_y)
             wheel_zoom_factor = self._wheel_zoom_factor()
@@ -230,9 +244,13 @@ class SDLViewer:
             self.viewer.state.zoom(factor, mouse_x.value, mouse_y.value)
             self.viewer.request_redraw()
         elif event.type == sdl2.SDL_MOUSEBUTTONDOWN:
+            if getattr(self.viewer, "search_active", False):
+                return
             if event.button.button == sdl2.SDL_BUTTON_LEFT:
                 self.mouse_down_pos = (event.button.x, event.button.y)
         elif event.type == sdl2.SDL_MOUSEMOTION:
+            if getattr(self.viewer, "search_active", False):
+                return
             left_drag = bool(event.motion.state & sdl2.SDL_BUTTON_LMASK)
             right_drag = bool(event.motion.state & sdl2.SDL_BUTTON_RMASK)
             middle_drag = bool(event.motion.state & sdl2.SDL_BUTTON_MMASK)
@@ -245,6 +263,8 @@ class SDLViewer:
                 self.viewer.state.move(event.motion.xrel * drag_pan_factor, event.motion.yrel * drag_pan_factor)
                 self.viewer.request_redraw()
         elif event.type == sdl2.SDL_MOUSEBUTTONUP:
+            if getattr(self.viewer, "search_active", False):
+                return
             if event.button.button == sdl2.SDL_BUTTON_LEFT and self.mouse_down_pos is not None:
                 dx = event.button.x - self.mouse_down_pos[0]
                 dy = event.button.y - self.mouse_down_pos[1]
@@ -256,8 +276,24 @@ class SDLViewer:
             self.viewer.request_redraw()
         elif event.type == sdl2.SDL_KEYDOWN:
             sym = event.key.keysym.sym
+            if getattr(self.viewer, "search_active", False):
+                if sym == sdl2.SDLK_ESCAPE:
+                    self.viewer.close_search(clear=True)
+                    self._suppress_opening_search_text = False
+                    sdl2.SDL_StopTextInput()
+                elif sym == sdl2.SDLK_RETURN:
+                    self.viewer.close_search(clear=False)
+                    self._suppress_opening_search_text = False
+                    sdl2.SDL_StopTextInput()
+                elif sym == sdl2.SDLK_BACKSPACE:
+                    self.viewer.backspace_search()
+                return
             if sym == sdl2.SDLK_ESCAPE:
                 self.running = False
+            elif sym == sdl2.SDLK_f:
+                self.viewer.open_search()
+                self._suppress_opening_search_text = True
+                sdl2.SDL_StartTextInput()
             elif sym == sdl2.SDLK_h:
                 self.viewer.zoom_home()
                 self.viewer.request_redraw()
@@ -286,6 +322,7 @@ class SDLViewer:
                 self.viewer.workspace.layout_row(
                     spacing=40.0 * max(1, self.viewer.options.spacing),
                     max_per_row=self.viewer.options.images_per_row,
+                    images=self.viewer.workspace.filtered_images() if self.viewer.has_active_filter() else None,
                 )
                 self.viewer.request_redraw()
             elif sym == sdl2.SDLK_2:
@@ -294,6 +331,7 @@ class SDLViewer:
                 self.viewer.workspace.layout_row(
                     spacing=40.0 * max(1, self.viewer.options.spacing),
                     max_per_row=self.viewer.options.images_per_row,
+                    images=self.viewer.workspace.filtered_images() if self.viewer.has_active_filter() else None,
                 )
                 self.viewer.request_redraw()
             elif sym == sdl2.SDLK_i:
