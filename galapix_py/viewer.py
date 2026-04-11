@@ -63,6 +63,7 @@ from .workspace import Workspace
 
 WORKSPACE_DUMP_PATH = "/tmp/workspace-dump.galapix"
 LABEL_FONT_SIZE = 14
+SEARCH_FONT_SIZE = 16
 LABEL_FONT_CANDIDATES = (
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
@@ -82,10 +83,10 @@ def _decode_texture_pixels(jpeg_bytes: bytes) -> tuple[np.ndarray, int, int, int
         return pixels, image.width, image.height, channels
 
 
-def _load_label_font() -> ImageFont.ImageFont | ImageFont.FreeTypeFont:
+def _load_label_font(size: int = LABEL_FONT_SIZE) -> ImageFont.ImageFont | ImageFont.FreeTypeFont:
     for path in LABEL_FONT_CANDIDATES:
         try:
-            return ImageFont.truetype(path, LABEL_FONT_SIZE)
+            return ImageFont.truetype(path, size)
         except OSError:
             continue
     return ImageFont.load_default()
@@ -239,6 +240,23 @@ def brighten_rgb(
 ) -> tuple[float, float, float]:
     lift = levels * step
     return tuple(min(1.0, channel + lift) for channel in color[:3])
+
+
+def darken_rgb(
+    color: tuple[float, float, float, float],
+    levels: int = 4,
+    step: float = 1.0 / 16.0,
+) -> tuple[float, float, float]:
+    drop = levels * step
+    return tuple(max(0.0, channel - drop) for channel in color[:3])
+
+
+def shade_rgb(
+    color: tuple[float, float, float, float],
+    factor: float,
+    floor: float = 0.06,
+) -> tuple[float, float, float]:
+    return tuple(max(floor, min(1.0, channel * factor)) for channel in color[:3])
 
 
 class Viewer:
@@ -484,11 +502,34 @@ class Viewer:
         self.label_textures[text] = label
         return label
 
-    def _create_text_texture(self, text: str, padding_x: int = 6, padding_y: int = 4) -> LabelTexture:
+    def _create_text_texture(
+        self,
+        text: str,
+        padding_x: int = 6,
+        padding_y: int = 4,
+        font_size: int = LABEL_FONT_SIZE,
+    ) -> LabelTexture:
         texture = int(glGenTextures(1))
         glBindTexture(GL_TEXTURE_2D, texture)
         configure_texture_upload_state()
-        rgba, width, height = build_label_rgba(text, padding_x=padding_x, padding_y=padding_y)
+        font = _load_label_font(font_size)
+        probe = PILImage.new("L", (1, 1), 0)
+        probe_draw = ImageDraw.Draw(probe)
+        left, top, right, bottom = probe_draw.textbbox((0, 0), text, font=font)
+        text_width = max(1, right - left)
+        text_height = max(1, bottom - top)
+        width = text_width + padding_x * 2
+        height = text_height + padding_y * 2
+        mask_image = PILImage.new("L", (width, height), 0)
+        draw = ImageDraw.Draw(mask_image)
+        draw.text((padding_x - left, padding_y - top), text, fill=255, font=font)
+        alpha = np.array(mask_image, dtype=np.uint8)
+        alpha_max = int(alpha.max())
+        if alpha_max and alpha_max < 255:
+            alpha = np.clip((alpha.astype(np.uint16) * 255) // alpha_max, 0, 255).astype(np.uint8)
+        rgba = np.zeros((height, width, 4), dtype=np.uint8)
+        rgba[:, :, :3] = 255
+        rgba[:, :, 3] = alpha
         glTexImage2D(
             GL_TEXTURE_2D,
             0,
@@ -530,43 +571,42 @@ class Viewer:
         glColor3f(1.0, 1.0, 1.0)
 
     def _draw_search_overlay(self) -> None:
-        title = self._get_label_texture("Search")
-        prompt = self._get_label_texture("Filename contains:")
-        query = self._create_text_texture(self.search_query or " ", padding_x=0, padding_y=0)
-        count = self._get_label_texture(
-            f"{len(self.workspace.filtered_images())} / {len(self.workspace.images)} matches"
-        )
+        title = self._create_text_texture("Filename contains", padding_x=0, padding_y=0, font_size=SEARCH_FONT_SIZE)
+        query = self._create_text_texture(self.search_query or " ", padding_x=0, padding_y=0, font_size=SEARCH_FONT_SIZE)
+        min_query_width = self._create_text_texture("M" * 10, padding_x=0, padding_y=0, font_size=SEARCH_FONT_SIZE)
+        min_query_height = self._create_text_texture("Mg", padding_x=0, padding_y=0, font_size=SEARCH_FONT_SIZE)
         pad = 16.0
         gap = 10.0
-        line_gap = 8.0
         query_box_pad = 6.0
-        width = max(title.width, prompt.width, query.width + 20, count.width) + pad * 2.0
+        panel_color = shade_rgb(self.background_colors[self.background_index], 0.55)
+        query_box_color = shade_rgb(self.background_colors[self.background_index], 0.35)
+        query_display_width = max(query.width, min_query_width.width)
+        query_display_height = max(query.height, min_query_height.height)
+        width = max(title.width, query_display_width + 20) + pad * 2.0
         height = (
             pad * 2.0
             + title.height
             + gap
-            + prompt.height
-            + line_gap
-            + query.height
+            + query_display_height
             + query_box_pad * 2.0
-            + gap
-            + count.height
         )
         left = (self.viewport_width - width) / 2.0
         top = max(24.0, (self.viewport_height - height) / 4.0)
         right = left + width
         bottom = top + height
-        self._draw_solid_rect(left, top, right, bottom, (0.08, 0.08, 0.08))
+        self._draw_solid_rect(left, top, right, bottom, panel_color)
         y = top + pad
-        self._draw_text_label(title, left + pad, y)
-        y += title.height + gap
-        self._draw_text_label(prompt, left + pad, y)
-        y += prompt.height + line_gap
-        query_top = y
-        query_bottom = query_top + query.height + query_box_pad * 2.0
-        self._draw_solid_rect(left + pad, query_top, right - pad, query_bottom, (0.0, 0.0, 0.0))
         try:
-            self._draw_text_label(query, left + pad + query_box_pad, query_top + query_box_pad)
+            self._draw_text_label(title, left + pad, y)
+        finally:
+            glDeleteTextures([title.texture_id])
+        y += title.height + gap
+        query_top = y
+        query_bottom = query_top + query_display_height + query_box_pad * 2.0
+        self._draw_solid_rect(left + pad, query_top, right - pad, query_bottom, query_box_color)
+        try:
+            text_top = query_top + query_box_pad + (query_display_height - query.height) / 2.0
+            self._draw_text_label(query, left + pad + query_box_pad, text_top)
             cursor_x = left + pad + query_box_pad + query.width + 2.0
             self._draw_solid_rect(
                 cursor_x,
@@ -577,8 +617,8 @@ class Viewer:
             )
         finally:
             glDeleteTextures([query.texture_id])
-        y = query_bottom + gap
-        self._draw_text_label(count, left + pad, y)
+            glDeleteTextures([min_query_width.texture_id])
+            glDeleteTextures([min_query_height.texture_id])
 
     def _draw_text_label(self, label: LabelTexture, left: float, top: float) -> None:
         glColor4f(1.0, 1.0, 1.0, 1.0)
