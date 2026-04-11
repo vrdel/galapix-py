@@ -1289,7 +1289,7 @@ class GalapixPyCoreTests(unittest.TestCase):
         self.assertEqual(zoom_calls, [])
         self.assertFalse(viewer.redraw_requested)
 
-    def test_keydown_f_opens_search_and_starts_text_input(self) -> None:
+    def test_keydown_slash_opens_search_and_starts_text_input(self) -> None:
         class DummyViewer:
             def __init__(self) -> None:
                 self.search_active = False
@@ -1303,11 +1303,11 @@ class GalapixPyCoreTests(unittest.TestCase):
         sdl_viewer = SDLViewer(viewer)
         event = type("Event", (), {})()
         event.type = 1
-        event.key = type("Key", (), {"keysym": type("Keysym", (), {"sym": 102, "mod": 0})()})()
+        event.key = type("Key", (), {"keysym": type("Keysym", (), {"sym": 47, "mod": 0})()})()
 
         with (
             patch("galapix_py.sdl_viewer.sdl2.SDL_KEYDOWN", 1),
-            patch("galapix_py.sdl_viewer.sdl2.SDLK_f", 102),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_SLASH", 47),
             patch("galapix_py.sdl_viewer.sdl2.SDL_StartTextInput") as start_text_input,
         ):
             sdl_viewer._process_event(event)
@@ -1335,7 +1335,7 @@ class GalapixPyCoreTests(unittest.TestCase):
 
         self.assertEqual(viewer.received, ["cat"])
 
-    def test_opening_f_does_not_propagate_into_search_query(self) -> None:
+    def test_opening_slash_does_not_propagate_into_search_query(self) -> None:
         class DummyViewer:
             def __init__(self) -> None:
                 self.search_active = False
@@ -1352,16 +1352,16 @@ class GalapixPyCoreTests(unittest.TestCase):
 
         key_event = type("Event", (), {})()
         key_event.type = 1
-        key_event.key = type("Key", (), {"keysym": type("Keysym", (), {"sym": 102, "mod": 0})()})()
+        key_event.key = type("Key", (), {"keysym": type("Keysym", (), {"sym": 47, "mod": 0})()})()
 
         text_event = type("Event", (), {})()
         text_event.type = 2
-        text_event.text = type("Text", (), {"text": b"f\x00" + (b"\x00" * 30)})()
+        text_event.text = type("Text", (), {"text": b"/\x00" + (b"\x00" * 30)})()
 
         with (
             patch("galapix_py.sdl_viewer.sdl2.SDL_KEYDOWN", 1),
             patch("galapix_py.sdl_viewer.sdl2.SDL_TEXTINPUT", 2),
-            patch("galapix_py.sdl_viewer.sdl2.SDLK_f", 102),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_SLASH", 47),
             patch("galapix_py.sdl_viewer.sdl2.SDL_StartTextInput"),
         ):
             sdl_viewer._process_event(key_event)

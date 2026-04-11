@@ -229,7 +229,7 @@ class SDLViewer:
         elif event.type == sdl2.SDL_TEXTINPUT and getattr(self.viewer, "search_active", False):
             raw = bytes(event.text.text)
             text = raw.split(b"\0", 1)[0].decode("utf-8", errors="ignore")
-            if self._suppress_opening_search_text and text.casefold() == "f":
+            if self._suppress_opening_search_text and text == "/":
                 self._suppress_opening_search_text = False
                 return
             self._suppress_opening_search_text = False
@@ -290,7 +290,7 @@ class SDLViewer:
                 return
             if sym == sdl2.SDLK_ESCAPE:
                 self.running = False
-            elif sym == sdl2.SDLK_f:
+            elif sym == sdl2.SDLK_SLASH:
                 self.viewer.open_search()
                 self._suppress_opening_search_text = True
                 sdl2.SDL_StartTextInput()

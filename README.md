@@ -158,7 +158,7 @@ Navigation:
 Selection and editing:
 
 - `Left click`: select topmost image under cursor
-- `f`: open live filename search; typing filters visible images immediately
+- `/`: open live filename search; typing filters visible images immediately
     - `Backspace`: delete one search character while the search box is open
     - `Enter`: close the search box and keep the current filter
     - `Esc`: close the search box and clear the current filter

@@ -571,7 +571,8 @@ class Viewer:
         glColor3f(1.0, 1.0, 1.0)
 
     def _draw_search_overlay(self) -> None:
-        title = self._create_text_texture("Filename contains", padding_x=0, padding_y=0, font_size=SEARCH_FONT_SIZE)
+        title = self._create_text_texture("Search", padding_x=0, padding_y=0, font_size=SEARCH_FONT_SIZE)
+        min_title_width = self._create_text_texture("Filename contains", padding_x=0, padding_y=0, font_size=SEARCH_FONT_SIZE)
         query = self._create_text_texture(self.search_query or " ", padding_x=0, padding_y=0, font_size=SEARCH_FONT_SIZE)
         min_query_width = self._create_text_texture("M" * 10, padding_x=0, padding_y=0, font_size=SEARCH_FONT_SIZE)
         min_query_height = self._create_text_texture("Mg", padding_x=0, padding_y=0, font_size=SEARCH_FONT_SIZE)
@@ -582,7 +583,7 @@ class Viewer:
         query_box_color = shade_rgb(self.background_colors[self.background_index], 0.35)
         query_display_width = max(query.width, min_query_width.width)
         query_display_height = max(query.height, min_query_height.height)
-        width = max(title.width, query_display_width + 20) + pad * 2.0
+        width = max(min_title_width.width, query_display_width + 20) + pad * 2.0
         height = (
             pad * 2.0
             + title.height
@@ -617,6 +618,7 @@ class Viewer:
             )
         finally:
             glDeleteTextures([query.texture_id])
+            glDeleteTextures([min_title_width.texture_id])
             glDeleteTextures([min_query_width.texture_id])
             glDeleteTextures([min_query_height.texture_id])
 
