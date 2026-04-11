@@ -1335,6 +1335,40 @@ class GalapixPyCoreTests(unittest.TestCase):
 
         self.assertEqual(viewer.received, ["cat"])
 
+    def test_opening_f_does_not_propagate_into_search_query(self) -> None:
+        class DummyViewer:
+            def __init__(self) -> None:
+                self.search_active = False
+                self.received: list[str] = []
+
+            def open_search(self) -> None:
+                self.search_active = True
+
+            def append_search_text(self, text: str) -> None:
+                self.received.append(text)
+
+        viewer = DummyViewer()
+        sdl_viewer = SDLViewer(viewer)
+
+        key_event = type("Event", (), {})()
+        key_event.type = 1
+        key_event.key = type("Key", (), {"keysym": type("Keysym", (), {"sym": 102, "mod": 0})()})()
+
+        text_event = type("Event", (), {})()
+        text_event.type = 2
+        text_event.text = type("Text", (), {"text": b"f\x00" + (b"\x00" * 30)})()
+
+        with (
+            patch("galapix_py.sdl_viewer.sdl2.SDL_KEYDOWN", 1),
+            patch("galapix_py.sdl_viewer.sdl2.SDL_TEXTINPUT", 2),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_f", 102),
+            patch("galapix_py.sdl_viewer.sdl2.SDL_StartTextInput"),
+        ):
+            sdl_viewer._process_event(key_event)
+            sdl_viewer._process_event(text_event)
+
+        self.assertEqual(viewer.received, [])
+
     def test_search_keydown_handles_backspace_enter_and_escape(self) -> None:
         actions: list[str] = []
 

@@ -484,6 +484,24 @@ class Viewer:
         self.label_textures[text] = label
         return label
 
+    def _create_text_texture(self, text: str, padding_x: int = 6, padding_y: int = 4) -> LabelTexture:
+        texture = int(glGenTextures(1))
+        glBindTexture(GL_TEXTURE_2D, texture)
+        configure_texture_upload_state()
+        rgba, width, height = build_label_rgba(text, padding_x=padding_x, padding_y=padding_y)
+        glTexImage2D(
+            GL_TEXTURE_2D,
+            0,
+            GL_RGBA,
+            width,
+            height,
+            0,
+            GL_RGBA,
+            GL_UNSIGNED_BYTE,
+            rgba,
+        )
+        return LabelTexture(texture, width, height)
+
     def _draw_solid_rect(self, left: float, top: float, right: float, bottom: float, color: tuple[float, float, float]) -> None:
         glDisable(GL_TEXTURE_2D)
         glColor3f(*color)
@@ -514,7 +532,7 @@ class Viewer:
     def _draw_search_overlay(self) -> None:
         title = self._get_label_texture("Search")
         prompt = self._get_label_texture("Filename contains:")
-        query = self._get_label_texture(self.search_query or " ")
+        query = self._create_text_texture(self.search_query or " ", padding_x=0, padding_y=0)
         count = self._get_label_texture(
             f"{len(self.workspace.filtered_images())} / {len(self.workspace.images)} matches"
         )
@@ -547,9 +565,18 @@ class Viewer:
         query_top = y
         query_bottom = query_top + query.height + query_box_pad * 2.0
         self._draw_solid_rect(left + pad, query_top, right - pad, query_bottom, (0.0, 0.0, 0.0))
-        self._draw_text_label(query, left + pad + query_box_pad, query_top + query_box_pad)
-        cursor_x = left + pad + query_box_pad + query.width + 2.0
-        self._draw_solid_rect(cursor_x, query_top + query_box_pad, cursor_x + 2.0, query_bottom - query_box_pad, (1.0, 1.0, 1.0))
+        try:
+            self._draw_text_label(query, left + pad + query_box_pad, query_top + query_box_pad)
+            cursor_x = left + pad + query_box_pad + query.width + 2.0
+            self._draw_solid_rect(
+                cursor_x,
+                query_top + query_box_pad,
+                cursor_x + 2.0,
+                query_bottom - query_box_pad,
+                (1.0, 1.0, 1.0),
+            )
+        finally:
+            glDeleteTextures([query.texture_id])
         y = query_bottom + gap
         self._draw_text_label(count, left + pad, y)
 

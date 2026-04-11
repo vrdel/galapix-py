@@ -93,6 +93,7 @@ class SDLViewer:
         self.running = False
         self.mouse_down_pos: tuple[int, int] | None = None
         self._last_title: str | None = None
+        self._suppress_opening_search_text = False
 
     def _ctrl_pressed(self) -> bool:
         mods = sdl2.SDL_GetModState()
@@ -228,6 +229,10 @@ class SDLViewer:
         elif event.type == sdl2.SDL_TEXTINPUT and getattr(self.viewer, "search_active", False):
             raw = bytes(event.text.text)
             text = raw.split(b"\0", 1)[0].decode("utf-8", errors="ignore")
+            if self._suppress_opening_search_text and text.casefold() == "f":
+                self._suppress_opening_search_text = False
+                return
+            self._suppress_opening_search_text = False
             self.viewer.append_search_text(text)
         elif event.type == sdl2.SDL_MOUSEWHEEL:
             if getattr(self.viewer, "search_active", False):
@@ -274,9 +279,11 @@ class SDLViewer:
             if getattr(self.viewer, "search_active", False):
                 if sym == sdl2.SDLK_ESCAPE:
                     self.viewer.close_search(clear=True)
+                    self._suppress_opening_search_text = False
                     sdl2.SDL_StopTextInput()
                 elif sym == sdl2.SDLK_RETURN:
                     self.viewer.close_search(clear=False)
+                    self._suppress_opening_search_text = False
                     sdl2.SDL_StopTextInput()
                 elif sym == sdl2.SDLK_BACKSPACE:
                     self.viewer.backspace_search()
@@ -285,6 +292,7 @@ class SDLViewer:
                 self.running = False
             elif sym == sdl2.SDLK_f:
                 self.viewer.open_search()
+                self._suppress_opening_search_text = True
                 sdl2.SDL_StartTextInput()
             elif sym == sdl2.SDLK_h:
                 self.viewer.zoom_home()
