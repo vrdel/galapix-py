@@ -78,7 +78,7 @@ def _run_command(app, args) -> int:
         app.check()
         return 0
     elif args.command == "cleanup":
-        app.cleanup(args.paths)
+        app.cleanup(args.paths, patterns=args.pattern)
         return 0
     return 0
 
@@ -120,14 +120,19 @@ def main() -> int:
 def cleanup_main() -> None:
     parser = argparse.ArgumentParser(prog="galapix-clean")
     parser.add_argument("-d", "--database", default=str(Path.home() / ".galapix-py"))
+    parser.add_argument("-p", "--pattern", action="append", default=[])
+    parser.add_argument("--ignore-pattern-case", action="store_true")
     parser.add_argument("paths", nargs="*")
     args = parser.parse_args()
 
     from .app import GalapixApp
 
-    options = ViewerOptions(database=Path(args.database).expanduser())
+    options = ViewerOptions(
+        database=Path(args.database).expanduser(),
+        ignore_pattern_case=args.ignore_pattern_case,
+    )
     try:
-        GalapixApp(options).cleanup(args.paths)
+        GalapixApp(options).cleanup(args.paths, patterns=args.pattern)
     except KeyboardInterrupt:
         return
 

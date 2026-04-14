@@ -148,6 +148,13 @@ class Database:
             return None, None
         return int(row["min_scale"]), int(row["max_scale"])
 
+    def count_tiles_for_file(self, file_id: int) -> int:
+        row = self.conn.execute(
+            "SELECT COUNT(*) AS tile_count FROM tiles WHERE file_id = ?",
+            (file_id,),
+        ).fetchone()
+        return 0 if row is None else int(row["tile_count"])
+
     def file_exists_and_matches(self, entry: FileEntry) -> bool:
         from pathlib import Path
 

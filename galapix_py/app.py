@@ -284,18 +284,80 @@ class GalapixApp:
         finally:
             database.close()
 
-    def cleanup(self, paths: Iterable[str] = ()) -> None:
+    def cleanup(self, paths: Iterable[str] = (), patterns: Iterable[str] = ()) -> None:
         database = Database(self.options.database)
         try:
+            compiled_patterns = self.compile_patterns(patterns)
             expanded = self.expand_cleanup_paths(paths)
+            if compiled_patterns:
+                if expanded:
+                    expanded = [path for path in expanded if self.pattern_matches(Path(path).name, compiled_patterns)]
+                else:
+                    expanded = [
+                        entry.url
+                        for entry in database.list_files()
+                        if self.pattern_matches(Path(entry.url).name, compiled_patterns)
+                    ]
             if not expanded:
+                if compiled_patterns:
+                    self._print_cleanup_summary(database, 0, 0, 0, 0, had_patterns=True, full_cleanup=False)
+                    return
+                files_count = len(database.list_files())
+                tile_count = sum(database.count_tiles_for_file(entry.file_id) for entry in database.list_files() if entry.file_id is not None)
                 database.cleanup()
+                self._print_cleanup_summary(
+                    database,
+                    files_count,
+                    files_count,
+                    tile_count,
+                    tile_count,
+                    had_patterns=False,
+                    full_cleanup=True,
+                )
                 return
+            matched_entries = []
+            seen_urls: set[str] = set()
+            for path in expanded:
+                entry = database.get_file_entry(path)
+                if entry is None or entry.file_id is None or entry.url in seen_urls:
+                    continue
+                seen_urls.add(entry.url)
+                matched_entries.append(entry)
+            matched_tiles = sum(database.count_tiles_for_file(entry.file_id) for entry in matched_entries if entry.file_id is not None)
             with database.bulk_writes():
-                for path in expanded:
-                    database.delete_file_by_url(path, commit=False)
+                for entry in matched_entries:
+                    database.delete_file_by_url(entry.url, commit=False)
+            self._print_cleanup_summary(
+                database,
+                len(matched_entries),
+                len(matched_entries),
+                matched_tiles,
+                matched_tiles,
+                had_patterns=bool(compiled_patterns),
+                full_cleanup=False,
+            )
         finally:
             database.close()
+
+    def _print_cleanup_summary(
+        self,
+        database: Database,
+        matched_images: int,
+        removed_images: int,
+        matched_tiles: int,
+        removed_tiles: int,
+        *,
+        had_patterns: bool,
+        full_cleanup: bool,
+    ) -> None:
+        print("galapix-clean")
+        print(f"  database: {database.path}")
+        print(f"  mode: {'full-cache' if full_cleanup else 'selective'}")
+        print(f"  pattern_filter: {'yes' if had_patterns else 'no'}")
+        print(f"  matched_images: {matched_images}")
+        print(f"  removed_images: {removed_images}")
+        print(f"  matched_tiles: {matched_tiles}")
+        print(f"  removed_tiles: {removed_tiles}")
 
     def selfcheck(self, paths: Iterable[str]) -> None:
         from .image import Image

@@ -7,20 +7,31 @@ Python port of `galapix` built around:
 - `PySDL2` for windowing and input
 - `sqlite3` for persistent file and tile caches
 
-The code mirrors the original C++ architecture:
+The code still broadly follows the original C++ architecture, with a few Python-specific adjustments:
 
 ```text
 GalapixApp
   -> Viewer / SDLViewer
+  -> ViewerState
   -> Workspace
   -> Image
   -> ImageTileCache
   -> TileProvider
+     -> DatabaseTileProvider / InMemoryTileProvider
   -> DatabaseThread
   -> JobManager
-  -> TileGenerator
+  -> tiling.py helpers
+     -> probe_file_entry()
+     -> generate_tiles_for_entry()
   -> Database
 ```
+
+Notable differences in the current implementation:
+
+- tile generation is now implemented as helper functions in `tiling.py`, not a `TileGenerator` class
+- image decode and scaling use `Pillow`
+- viewer interaction state is split into `Viewer` and `ViewerState`
+- the viewer now includes a live filename search overlay opened with `/`
 
 ## Commands
 

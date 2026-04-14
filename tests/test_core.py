@@ -179,6 +179,112 @@ class GalapixPyCoreTests(unittest.TestCase):
             finally:
                 database.close()
 
+    def test_cleanup_filters_selected_cached_images_by_pattern(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            first = base / "alpha.jpg"
+            second = base / "bravo.jpg"
+            make_solid_jpeg(first, width=100, height=80, color=(0, 32, 96))
+            make_solid_jpeg(second, width=120, height=90, color=(0, 64, 128))
+
+            options = ViewerOptions(database=base / "db")
+            app = GalapixApp(options)
+            app.prepare([str(first), str(second)])
+            app.cleanup([str(base)], patterns=[r"alpha"])
+
+            database = Database(base / "db")
+            try:
+                self.assertIsNone(database.get_file_entry(str(first.resolve())))
+                self.assertIsNotNone(database.get_file_entry(str(second.resolve())))
+            finally:
+                database.close()
+
+    def test_cleanup_prints_summary_for_pattern_filtered_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            first = base / "alpha.jpg"
+            second = base / "bravo.jpg"
+            make_solid_jpeg(first, width=100, height=80, color=(0, 32, 96))
+            make_solid_jpeg(second, width=120, height=90, color=(0, 64, 128))
+
+            options = ViewerOptions(database=base / "db")
+            app = GalapixApp(options)
+            app.prepare([str(first), str(second)])
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                app.cleanup(patterns=[r"alpha"])
+
+            text = output.getvalue()
+            self.assertIn("galapix-clean\n", text)
+            self.assertIn(f"  database: {base / 'db' / 'cache.sqlite3'}\n", text)
+            self.assertIn("  mode: selective\n", text)
+            self.assertIn("  pattern_filter: yes\n", text)
+            self.assertIn("  matched_images: 1\n", text)
+            self.assertIn("  removed_images: 1\n", text)
+            self.assertIn("  matched_tiles: 1\n", text)
+            self.assertIn("  removed_tiles: 1\n", text)
+
+    def test_cleanup_filters_cached_images_by_pattern_without_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            first = base / "alpha.jpg"
+            second = base / "bravo.jpg"
+            make_solid_jpeg(first, width=100, height=80, color=(0, 32, 96))
+            make_solid_jpeg(second, width=120, height=90, color=(0, 64, 128))
+
+            options = ViewerOptions(database=base / "db")
+            app = GalapixApp(options)
+            app.prepare([str(first), str(second)])
+            app.cleanup(patterns=[r"alpha"])
+
+            database = Database(base / "db")
+            try:
+                self.assertIsNone(database.get_file_entry(str(first.resolve())))
+                self.assertIsNotNone(database.get_file_entry(str(second.resolve())))
+            finally:
+                database.close()
+
+    def test_cleanup_pattern_can_ignore_case(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            image_path = base / "Alpha.JPG"
+            make_solid_jpeg(image_path, width=100, height=80, color=(0, 64, 128))
+
+            options = ViewerOptions(database=base / "db", ignore_pattern_case=True)
+            app = GalapixApp(options)
+            app.prepare([str(image_path)])
+            app.cleanup(patterns=[r"alpha"])
+
+            database = Database(base / "db")
+            try:
+                self.assertIsNone(database.get_file_entry(str(image_path.resolve())))
+            finally:
+                database.close()
+
+    def test_cleanup_without_paths_prints_full_cache_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            first = make_test_jpeg(base, width=100, height=80)
+            second = base / "sample-2.jpg"
+            make_solid_jpeg(second, width=120, height=90, color=(0, 32, 96))
+
+            options = ViewerOptions(database=base / "db")
+            app = GalapixApp(options)
+            app.prepare([str(first), str(second)])
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                app.cleanup()
+
+            text = output.getvalue()
+            self.assertIn("  mode: full-cache\n", text)
+            self.assertIn("  pattern_filter: no\n", text)
+            self.assertIn("  matched_images: 2\n", text)
+            self.assertIn("  removed_images: 2\n", text)
+            self.assertIn("  matched_tiles: 2\n", text)
+            self.assertIn("  removed_tiles: 2\n", text)
+
     def test_prepare_all_tiles_skips_unchanged_cached_images(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
@@ -804,6 +910,25 @@ class GalapixPyCoreTests(unittest.TestCase):
         parser = build_parser()
         args = parser.parse_args(["cleanup", "/tmp/a.jpg"])
         self.assertEqual(args.paths, ["/tmp/a.jpg"])
+
+    def test_cli_cleanup_accepts_pattern(self) -> None:
+        from galapix_py.cli import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["-p", "alpha", "cleanup", "/tmp/a.jpg"])
+        self.assertEqual(args.paths, ["/tmp/a.jpg"])
+        self.assertEqual(args.pattern, ["alpha"])
+
+    def test_cleanup_main_accepts_pattern(self) -> None:
+        from galapix_py import cli
+
+        with (
+            patch("sys.argv", ["galapix-clean", "-p", "alpha", "--ignore-pattern-case", "/tmp/a.jpg"]),
+            patch("galapix_py.app.GalapixApp") as app_class,
+        ):
+            cli.cleanup_main()
+
+        app_class.return_value.cleanup.assert_called_once_with(["/tmp/a.jpg"], patterns=["alpha"])
 
     def test_live_render_validation_waits_for_textured_tiles(self) -> None:
         validation = LiveRenderValidation(timeout=1.0)
