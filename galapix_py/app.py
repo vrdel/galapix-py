@@ -27,6 +27,10 @@ class GalapixApp:
             workspace.sort_by_mtime()
         elif self.options.sort == "mtime-reverse":
             workspace.sort_by_mtime(reverse=True)
+        elif self.options.sort == "url":
+            workspace.sort_by_url(case_insensitive=self.options.case_insensitive_sort)
+        elif self.options.sort == "url-reverse":
+            workspace.sort_by_url(reverse=True, case_insensitive=self.options.case_insensitive_sort)
 
     def expand_paths(self, paths: Iterable[str]) -> list[str]:
         results: list[str] = []

@@ -23,7 +23,7 @@ def build_parser() -> argparse.ArgumentParser:
             cmd.add_argument("-r", "--title", default=argparse.SUPPRESS)
             cmd.add_argument("-g", "--geometry", default="1280x720")
             cmd.add_argument("-f", "--fullscreen", action="store_true")
-            cmd.add_argument("--sort", choices=("name", "name-reverse", "mtime", "mtime-reverse"))
+            cmd.add_argument("--sort", choices=("name", "name-reverse", "mtime", "mtime-reverse", "url", "url-reverse"))
             cmd.add_argument("--images-per-row", type=int, default=None)
             cmd.add_argument("--spacing", type=int, default=1)
             cmd.add_argument("--background-color", type=parse_background_color, default=None)

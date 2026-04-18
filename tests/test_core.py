@@ -507,6 +507,18 @@ class GalapixPyCoreTests(unittest.TestCase):
                 ["z-last.jpg", "a-first.jpg"],
             )
 
+    def test_apply_initial_sort_url_uses_case_insensitive_option(self) -> None:
+        app = GalapixApp(ViewerOptions(database=Path('/tmp/db'), sort='url-reverse', case_insensitive_sort=True))
+
+        calls: list[tuple[bool, bool]] = []
+
+        class DummyWorkspace:
+            def sort_by_url(self, reverse: bool = False, case_insensitive: bool = False) -> None:
+                calls.append((reverse, case_insensitive))
+
+        app.apply_initial_sort(DummyWorkspace())
+        self.assertEqual(calls, [(True, True)])
+
     def test_view_pattern_can_ignore_case(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
@@ -782,6 +794,20 @@ class GalapixPyCoreTests(unittest.TestCase):
         parser = build_parser()
         args = parser.parse_args(["view", "--sort", "mtime-reverse"])
         self.assertEqual(args.sort, "mtime-reverse")
+
+    def test_cli_accepts_view_url_sort(self) -> None:
+        from galapix_py.cli import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["view", "--sort", "url"])
+        self.assertEqual(args.sort, "url")
+
+    def test_cli_accepts_view_url_reverse_sort(self) -> None:
+        from galapix_py.cli import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["view", "--sort", "url-reverse"])
+        self.assertEqual(args.sort, "url-reverse")
 
     def test_cli_view_accepts_title_after_subcommand(self) -> None:
         from galapix_py.cli import build_parser
@@ -1705,7 +1731,7 @@ class CliViewTests(unittest.TestCase):
             "-t", "8",
             "-p", "sample",
             "--ignore-pattern-case",
-            "--sort", "mtime-reverse",
+            "--sort", "url-reverse",
             "--geometry", "1920x1080",
             "--spacing", "3",
             "--background-color", "#4b5262",
@@ -1730,7 +1756,7 @@ class CliViewTests(unittest.TestCase):
         opts = captured["options"]
         self.assertEqual(opts.threads, 8)
         self.assertTrue(opts.ignore_pattern_case)
-        self.assertEqual(opts.sort, "mtime-reverse")
+        self.assertEqual(opts.sort, "url-reverse")
         self.assertEqual(opts.width, 1920)
         self.assertEqual(opts.height, 1080)
         self.assertEqual(opts.spacing, 3)
