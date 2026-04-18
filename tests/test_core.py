@@ -930,6 +930,62 @@ class GalapixPyCoreTests(unittest.TestCase):
 
         app_class.return_value.cleanup.assert_called_once_with(["/tmp/a.jpg"], patterns=["alpha"])
 
+    def test_sort_shortcuts_map_1_to_name_and_3_to_path(self) -> None:
+        calls: list[tuple[str, bool]] = []
+
+        class DummyWorkspace:
+            def sort_by_name(self, reverse: bool = False) -> None:
+                calls.append(("name", reverse))
+
+            def sort_by_mtime(self, reverse: bool = False) -> None:
+                calls.append(("mtime", reverse))
+
+            def sort_by_url(self, reverse: bool = False, case_insensitive: bool = False) -> None:
+                calls.append(("path", reverse))
+
+            def layout_row(self, **kwargs) -> None:
+                pass
+
+            def filtered_images(self):
+                return []
+
+        class DummyOptions:
+            spacing = 1
+            images_per_row = None
+            case_insensitive_sort = False
+
+        class DummyViewer:
+            def __init__(self) -> None:
+                self.workspace = DummyWorkspace()
+                self.options = DummyOptions()
+                self.redraw_requested = False
+
+            def has_active_filter(self) -> bool:
+                return False
+
+            def request_redraw(self) -> None:
+                self.redraw_requested = True
+
+        viewer = DummyViewer()
+        sdl_viewer = SDLViewer(viewer)
+
+        with (
+            patch("galapix_py.sdl_viewer.sdl2.SDL_KEYDOWN", 1),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_1", 49),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_2", 50),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_3", 51),
+            patch("galapix_py.sdl_viewer.sdl2.KMOD_SHIFT", 1),
+        ):
+            event = type("Event", (), {})()
+            event.type = 1
+            event.key = type("Key", (), {"keysym": type("Keysym", (), {"sym": 49, "mod": 0})()})()
+            sdl_viewer._process_event(event)
+            event.key = type("Key", (), {"keysym": type("Keysym", (), {"sym": 51, "mod": 1})()})()
+            sdl_viewer._process_event(event)
+
+        self.assertEqual(calls, [("name", False), ("path", True)])
+        self.assertTrue(viewer.redraw_requested)
+
     def test_live_render_validation_waits_for_textured_tiles(self) -> None:
         validation = LiveRenderValidation(timeout=1.0)
 

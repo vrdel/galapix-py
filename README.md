@@ -179,10 +179,12 @@ Selection and editing:
 
 Layout and ordering:
 
-- `1`: sort by URL and relayout
-- `Shift+1`: reverse sort by URL and relayout
+- `1`: sort by name and relayout
+- `Shift+1`: reverse sort by name and relayout
 - `2`: sort by file mtime and relayout
 - `Shift+2`: reverse sort by file mtime and relayout
+- `3`: sort by path and relayout
+- `Shift+3`: reverse sort by path and relayout
 
 Display and debug:
 
