@@ -421,6 +421,15 @@ class Viewer:
             levels=4,
         )
 
+    def search_panel_color(self) -> tuple[float, float, float]:
+        return brighten_rgb(
+            self.background_colors[self.background_index],
+            levels=2,
+        )
+
+    def search_query_box_color(self) -> tuple[float, float, float]:
+        return shade_rgb(self.background_colors[self.background_index], 0.35)
+
     def toggle_status(self) -> None:
         self.show_status = not self.show_status
         self.request_redraw()
@@ -579,8 +588,8 @@ class Viewer:
         pad = 16.0
         gap = 10.0
         query_box_pad = 6.0
-        panel_color = shade_rgb(self.background_colors[self.background_index], 0.55)
-        query_box_color = shade_rgb(self.background_colors[self.background_index], 0.35)
+        panel_color = self.search_panel_color()
+        query_box_color = self.search_query_box_color()
         query_display_width = max(query.width, min_query_width.width)
         query_display_height = max(query.height, min_query_height.height)
         width = max(min_title_width.width, query_display_width + 20) + pad * 2.0

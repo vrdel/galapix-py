@@ -1653,6 +1653,16 @@ class GalapixPyCoreTests(unittest.TestCase):
         viewer = Viewer(options, Workspace(), None)
         self.assertEqual(viewer.selection_outline_color(), (0.7, 0.8, 0.9))
 
+    def test_viewer_search_overlay_colors_track_background(self) -> None:
+        options = ViewerOptions(database=Path("/tmp/db"), background_color=(0.2, 0.3, 0.4, 1.0))
+        viewer = Viewer(options, Workspace(), None)
+
+        self.assertEqual(viewer.search_panel_color(), (0.325, 0.425, 0.525))
+        self.assertEqual(len(viewer.search_query_box_color()), 3)
+        self.assertAlmostEqual(viewer.search_query_box_color()[0], 0.07)
+        self.assertAlmostEqual(viewer.search_query_box_color()[1], 0.105)
+        self.assertAlmostEqual(viewer.search_query_box_color()[2], 0.14)
+
     def test_viewer_status_text_reports_search_filter(self) -> None:
         workspace = Workspace()
         workspace.add_image(Image("/tmp/alpha.jpg"))
