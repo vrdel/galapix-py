@@ -60,12 +60,19 @@ galapix-py cleanup [paths...]
 
 ### Global options
 
-Available on all commands:
+Available before the subcommand on `galapix-py`:
 
 - `-d`, `--database`: cache root, default `~/.galapix-py`
 - `-t`, `--threads`: worker count for prepare / background jobs
 - `-p`, `--pattern`: regex path filter, can be passed multiple times
 - `--ignore-pattern-case`: make `--pattern` filters case-insensitive
+- `--validate-render`: for `view`, exit after the first textured frame in a live desktop session
+- `--validation-timeout`: render validation timeout in seconds
+
+The standalone commands expose the same relevant options directly on each command, except:
+
+- `galapix-clean` supports `-d`, `--database`, `-p`, `--pattern`, and `--ignore-pattern-case`
+- `--validate-render` and `--validation-timeout` are only available on `galapix-view` and on `galapix-py` before the `view` subcommand
 
 ### View options
 
@@ -82,8 +89,6 @@ Available on `galapix-view` and `galapix-py view`:
 - `--selection-border-color RRGGBB`: hex selection outline color (e.g. `B02A37`)
 - `--memory-only`: bypass the SQLite tile cache and generate tiles in memory
 - `--show-filenames`: draw filename labels above visible images
-- `--validate-render`: exit after the first textured frame in a live desktop session
-- `--validation-timeout`: render validation timeout in seconds
 
 ### Prepare options
 
