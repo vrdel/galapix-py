@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -107,34 +106,6 @@ class Workspace:
             return
         self.images = [image for image in self.images if image not in selected]
         self.clear_selection()
-
-    def save(self, path: str | Path) -> None:
-        target = Path(path).expanduser()
-        payload = {
-            "version": 1,
-            "images": [
-                {
-                    "url": image.url,
-                    "x": image.placement.x,
-                    "y": image.placement.y,
-                    "scale": image.placement.scale,
-                    "selected": image.selected,
-                }
-                for image in self.images
-            ],
-        }
-        target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-
-    def load(self, path: str | Path) -> None:
-        source = Path(path).expanduser()
-        payload = json.loads(source.read_text(encoding="utf-8"))
-        self.clear()
-        for item in payload.get("images", []):
-            image = Image(str(Path(item["url"]).expanduser()))
-            image.set_absolute(float(item.get("x", 0.0)), float(item.get("y", 0.0)), float(item.get("scale", 1.0)))
-            image.selected = bool(item.get("selected", False))
-            self.add_image(image)
-        self.animation_progress = 1.0
 
     def layout_row(
         self,

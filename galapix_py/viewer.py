@@ -61,7 +61,6 @@ from .providers import DatabaseTileProvider
 from .viewer_state import ViewerState
 from .workspace import Workspace
 
-WORKSPACE_DUMP_PATH = "/tmp/workspace-dump.galapix"
 LABEL_FONT_SIZE = 14
 SEARCH_FONT_SIZE = 16
 LABEL_FONT_CANDIDATES = (
@@ -353,14 +352,6 @@ class Viewer:
         self.state.target_offset_x = (self.viewport_width / 2.0) - cx * scale
         self.state.target_offset_y = (self.viewport_height / 2.0) - cy * scale
         self.needs_redraw = True
-
-    def save_workspace(self, path: str = WORKSPACE_DUMP_PATH) -> None:
-        self.workspace.save(path)
-
-    def load_workspace(self, path: str = WORKSPACE_DUMP_PATH) -> None:
-        self.workspace.load(path)
-        self.zoom_to_workspace()
-        self.request_redraw()
 
     def refresh_selection(self) -> None:
         refreshed = False

@@ -576,29 +576,6 @@ class GalapixPyCoreTests(unittest.TestCase):
                 ["argo-map.jpg", "ldap-notes.jpg"],
             )
 
-    def test_workspace_save_load_roundtrip(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            base = Path(tmpdir)
-            workspace = Workspace()
-            first = Image("/tmp/a.jpg")
-            first.set_absolute(10.0, 20.0, 0.5)
-            first.selected = True
-            second = Image("/tmp/b.jpg")
-            second.set_absolute(30.0, 40.0, 0.75)
-            workspace.add_image(first)
-            workspace.add_image(second)
-
-            path = base / "workspace.galapix"
-            workspace.save(path)
-
-            loaded = Workspace()
-            loaded.load(path)
-
-            self.assertEqual(len(loaded.images), 2)
-            self.assertEqual(len(loaded.selected_images()), 1)
-            self.assertAlmostEqual(loaded.images[0].placement.x, 10.0)
-            self.assertAlmostEqual(loaded.images[1].placement.scale, 0.75)
-
     def test_workspace_layout_row_keeps_images_left_to_right(self) -> None:
         workspace = Workspace()
         first = Image("/tmp/a.jpg")

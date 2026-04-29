@@ -98,7 +98,7 @@ Available on `galapix-prepare` and `galapix-py prepare`:
 
 ### Notes
 
-- `view` accepts image paths, directories, and saved workspace files ending in `.galapix`
+- `view` accepts image paths and directories
 - `prepare` builds the full tile pyramid into the SQLite cache
 - `cleanup` / `galapix-clean` remove the whole cache if no paths are provided, or only matching cached images if paths/directories are provided
 - `list` prints cached image URLs
@@ -200,11 +200,6 @@ Display and debug:
 - `Space`: print visible image URLs to the terminal
 - `0`: print workspace/runtime info to the terminal
 
-Workspace persistence:
-
-- `F2`: load `/tmp/workspace-dump.galapix`
-- `F3`: save `/tmp/workspace-dump.galapix`
-
 Quit:
 
 - `Esc`: exit viewer
@@ -227,7 +222,6 @@ Quit:
   - configurable row spacing and row limits
   - selection
   - selection-aware zoom
-  - workspace save/load
   - background cycling
   - title-based status overlay
   - optional filename labels above images

@@ -119,12 +119,7 @@ class GalapixApp:
                         image.set_provider(DatabaseTileProvider(db_thread, entry))
                         workspace.add_image(image)
 
-        loaded_workspace = False
         for path in self.expand_paths(paths):
-            if Path(path).suffix.lower() == ".galapix":
-                workspace.load(path)
-                loaded_workspace = True
-                continue
             image = Image(path)
             if self.options.memory_only:
                 if self.pattern_matches(path, compiled_patterns):
@@ -141,13 +136,12 @@ class GalapixApp:
                     image.set_provider(build_memory_provider(image.url))
         else:
             for image in workspace.images:
-                if image.provider is None and Path(image.url).suffix.lower() != ".galapix":
+                if image.provider is None:
                     image.set_provider(DatabaseTileProvider(db_thread, resolve_database_entry(image.url)))
 
-        if not loaded_workspace:
-            self.apply_initial_sort(workspace)
-            workspace.layout_row(spacing=self.row_spacing(), max_per_row=self.options.images_per_row)
-            workspace.update(1.0)
+        self.apply_initial_sort(workspace)
+        workspace.layout_row(spacing=self.row_spacing(), max_per_row=self.options.images_per_row)
+        workspace.update(1.0)
 
         try:
             if db_thread is not None:
@@ -364,9 +358,7 @@ class GalapixApp:
         print(f"  removed_tiles: {removed_tiles}")
 
     def selfcheck(self, paths: Iterable[str]) -> None:
-        from .image import Image
         from .tiling import generate_tiles_for_entry, probe_file_entry
-        from .workspace import Workspace
 
         expanded = self.expand_paths(paths)
         if not expanded:
@@ -392,25 +384,8 @@ class GalapixApp:
                     thumb = database.get_tile(entry.file_id, entry.thumbnail_scale, 0, 0)
                     assert thumb is not None, f"thumbnail tile missing for {entry.url}"
 
-                workspace = Workspace()
-                for index, entry in enumerate(stored_entries[:3]):
-                    image = Image(entry.url)
-                    image.set_absolute(float(index * 100), float(index * 50), 0.5 + index * 0.1)
-                    if index == 0:
-                        image.selected = True
-                    workspace.add_image(image)
-
-                workspace_path = Path(tmpdir) / "workspace.galapix"
-                workspace.save(workspace_path)
-
-                loaded_workspace = Workspace()
-                loaded_workspace.load(workspace_path)
-                assert len(loaded_workspace.images) == len(workspace.images), "workspace image count mismatch after load"
-                assert len(loaded_workspace.selected_images()) == len(workspace.selected_images()), "workspace selection mismatch after load"
-
                 print("selfcheck: ok")
                 print(f"  files: {len(stored_entries)}")
                 print(f"  database: {Path(tmpdir) / 'db' / 'cache.sqlite3'}")
-                print(f"  workspace: {workspace_path}")
             finally:
                 database.close()

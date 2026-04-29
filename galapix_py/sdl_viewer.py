@@ -310,10 +310,6 @@ class SDLViewer:
                 self.viewer.clear_all_caches()
             elif sym == sdl2.SDLK_F1:
                 self.viewer.toggle_status()
-            elif sym == sdl2.SDLK_F2:
-                self.viewer.load_workspace()
-            elif sym == sdl2.SDLK_F3:
-                self.viewer.save_workspace()
             elif sym == sdl2.SDLK_F5:
                 self.viewer.refresh_selection()
             elif sym == sdl2.SDLK_1:
