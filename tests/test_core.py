@@ -989,6 +989,34 @@ class GalapixPyCoreTests(unittest.TestCase):
         self.assertEqual(calls, [("name", False), ("path", True)])
         self.assertTrue(viewer.redraw_requested)
 
+    def test_keydown_i_resets_view(self) -> None:
+        calls: list[str] = []
+
+        class DummyViewer:
+            def __init__(self) -> None:
+                self.redraw_requested = False
+
+            def zoom_home(self) -> None:
+                calls.append("home")
+
+            def request_redraw(self) -> None:
+                self.redraw_requested = True
+
+        viewer = DummyViewer()
+        sdl_viewer = SDLViewer(viewer)
+
+        with (
+            patch("galapix_py.sdl_viewer.sdl2.SDL_KEYDOWN", 1),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_i", 105),
+        ):
+            event = type("Event", (), {})()
+            event.type = 1
+            event.key = type("Key", (), {"keysym": type("Keysym", (), {"sym": 105, "mod": 0})()})()
+            sdl_viewer._process_event(event)
+
+        self.assertEqual(calls, ["home"])
+        self.assertTrue(viewer.redraw_requested)
+
     def test_live_render_validation_waits_for_textured_tiles(self) -> None:
         validation = LiveRenderValidation(timeout=1.0)
 
@@ -1446,6 +1474,51 @@ class GalapixPyCoreTests(unittest.TestCase):
             sdl_viewer._process_keyboard_state()
 
         self.assertEqual(move_calls, [(48.0, 0.0)])
+        self.assertTrue(viewer.redraw_requested)
+
+    def test_keyboard_vim_pan_uses_arrow_step(self) -> None:
+        move_calls: list[tuple[float, float]] = []
+
+        class DummyState:
+            def move(self, x: float, y: float) -> None:
+                move_calls.append((x, y))
+
+        class DummyViewer:
+            def __init__(self) -> None:
+                self.state = DummyState()
+                self.redraw_requested = False
+
+            def request_redraw(self) -> None:
+                self.redraw_requested = True
+
+        viewer = DummyViewer()
+        sdl_viewer = SDLViewer(viewer)
+
+        class FakeKeyState:
+            def __getitem__(self, scancode: int) -> int:
+                return 1 if scancode == 1 else 0
+
+        with (
+            patch("galapix_py.sdl_viewer.sdl2.SDL_GetKeyboardState", return_value=FakeKeyState()),
+            patch("galapix_py.sdl_viewer.sdl2.SDL_GetScancodeFromKey", side_effect=lambda key: 1 if key == 104 else 0),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_LEFT", 276),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_RIGHT", 275),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_UP", 273),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_DOWN", 274),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_h", 104),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_j", 106),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_k", 107),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_l", 108),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_w", 119),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_s", 115),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_LALT", 308),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_RALT", 307),
+            patch.object(SDLViewer, "_shift_pressed", return_value=False),
+            patch.object(SDLViewer, "_ctrl_pressed", return_value=False),
+        ):
+            sdl_viewer._process_keyboard_state()
+
+        self.assertEqual(move_calls, [(16.0, 0.0)])
         self.assertTrue(viewer.redraw_requested)
 
     def test_keyboard_state_is_ignored_while_search_is_active(self) -> None:

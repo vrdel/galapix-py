@@ -163,11 +163,12 @@ Navigation:
 - `Mouse wheel`: zoom around cursor
 - `Left drag`: pan
 - `Arrow keys`: pan
+- `h` / `j` / `k` / `l`: pan left / down / up / right
 - `Ctrl+Arrow keys`: faster pan
 - `w`: zoom in
 - `s`: zoom out
 - `Ctrl+w` / `Ctrl+s`: faster zoom
-- `h`: reset view
+- `i`: reset view
 - `x`: zoom to selection, or whole workspace if nothing is selected
 - `n`: zoom to original size (1:1 pixel mapping) centered on selected image
 
@@ -178,7 +179,6 @@ Selection and editing:
     - `Backspace`: delete one search character while the search box is open
     - `Enter`: close the search box and keep the current filter
     - `Esc`: close the search box and clear the current filter
-- `i`: isolate current selection
 - `Delete`: delete current selection from the workspace
 - `F5`: refresh selected images from disk / database
 

@@ -213,6 +213,18 @@ class SDLViewer:
         if pressed(sdl2.SDLK_DOWN):
             self.viewer.state.move(0.0, -pan_step)
             moved = True
+        if pressed(sdl2.SDLK_h):
+            self.viewer.state.move(+pan_step, 0.0)
+            moved = True
+        if pressed(sdl2.SDLK_l):
+            self.viewer.state.move(-pan_step, 0.0)
+            moved = True
+        if pressed(sdl2.SDLK_k):
+            self.viewer.state.move(0.0, +pan_step)
+            moved = True
+        if pressed(sdl2.SDLK_j):
+            self.viewer.state.move(0.0, -pan_step)
+            moved = True
         if pressed(sdl2.SDLK_w):
             self.viewer.state.zoom(zoom_factor, self.viewer.viewport_width / 2.0, self.viewer.viewport_height / 2.0)
             moved = True
@@ -294,7 +306,7 @@ class SDLViewer:
                 self.viewer.open_search()
                 self._suppress_opening_search_text = True
                 sdl2.SDL_StartTextInput()
-            elif sym == sdl2.SDLK_h:
+            elif sym == sdl2.SDLK_i:
                 self.viewer.zoom_home()
                 self.viewer.request_redraw()
             elif sym == sdl2.SDLK_x:
@@ -338,14 +350,6 @@ class SDLViewer:
                     max_per_row=self.viewer.options.images_per_row,
                     images=self.viewer.workspace.filtered_images() if self.viewer.has_active_filter() else None,
                 )
-                self.viewer.request_redraw()
-            elif sym == sdl2.SDLK_i:
-                self.viewer.workspace.isolate_selection()
-                self.viewer.workspace.layout_row(
-                    spacing=40.0 * max(1, self.viewer.options.spacing),
-                    max_per_row=self.viewer.options.images_per_row,
-                )
-                self.viewer.zoom_to_workspace()
                 self.viewer.request_redraw()
             elif sym == sdl2.SDLK_DELETE:
                 self.viewer.workspace.delete_selection()
