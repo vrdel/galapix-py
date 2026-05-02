@@ -89,6 +89,7 @@ Available on `galapix-view` and `galapix-py view`:
 - `--selection-border-color RRGGBB`: hex selection outline color (e.g. `B02A37`)
 - `--memory-only`: bypass the SQLite tile cache and generate tiles in memory
 - `--show-filenames`: draw filename labels above visible images
+- `--quit-key KEY`: replace the default `Esc` quit shortcut with a single-character key; uppercase letters require Shift (e.g. `Q` means `Shift+q`)
 
 ### Prepare options
 
@@ -203,6 +204,7 @@ Display and debug:
 Quit:
 
 - `Esc`: exit viewer
+- configured `--quit-key`: exit viewer instead of `Esc`
 
 ## Notes
 

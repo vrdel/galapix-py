@@ -19,7 +19,7 @@ from galapix_py.image import Image, ImageTileCache
 from galapix_py.jobs import JobManager
 from galapix_py.models import TileRecord, ViewerOptions
 from galapix_py.providers import InMemoryTileProvider
-from galapix_py.sdl_viewer import LiveRenderValidation, SDLViewer, configure_app_identity_hint, set_x11_window_class
+from galapix_py.sdl_viewer import LiveRenderValidation, SDLViewer, configure_app_identity_hint, quit_key_matches, set_x11_window_class
 from galapix_py.tiling import generate_tiles_for_entry, probe_file_entry
 from galapix_py.viewer import (
     FrameRenderStats,
@@ -835,6 +835,13 @@ class GalapixPyCoreTests(unittest.TestCase):
         args = parser.parse_args(["view", "--show-filenames"])
         self.assertTrue(args.show_filenames)
 
+    def test_cli_view_accepts_quit_key(self) -> None:
+        from galapix_py.cli import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["view", "--quit-key", "Q"])
+        self.assertEqual(args.quit_key, "Q")
+
     def test_cli_defaults_images_per_row_to_auto(self) -> None:
         from galapix_py.cli import build_parser
 
@@ -1016,6 +1023,76 @@ class GalapixPyCoreTests(unittest.TestCase):
 
         self.assertEqual(calls, ["home"])
         self.assertTrue(viewer.redraw_requested)
+
+    def test_quit_key_matches_uppercase_only_with_shift(self) -> None:
+        with patch("galapix_py.sdl_viewer.sdl2.KMOD_SHIFT", 1):
+            self.assertTrue(quit_key_matches("Q", ord("q"), 1))
+            self.assertFalse(quit_key_matches("Q", ord("q"), 0))
+            self.assertTrue(quit_key_matches("q", ord("q"), 0))
+            self.assertFalse(quit_key_matches("q", ord("q"), 1))
+
+    def test_configured_quit_key_stops_viewer(self) -> None:
+        class DummyOptions:
+            quit_key = "Q"
+
+        class DummyViewer:
+            options = DummyOptions()
+
+        sdl_viewer = SDLViewer(DummyViewer())
+        sdl_viewer.running = True
+
+        with (
+            patch("galapix_py.sdl_viewer.sdl2.SDL_KEYDOWN", 1),
+            patch("galapix_py.sdl_viewer.sdl2.KMOD_SHIFT", 1),
+        ):
+            event = type("Event", (), {})()
+            event.type = 1
+            event.key = type("Key", (), {"keysym": type("Keysym", (), {"sym": ord("q"), "mod": 1})()})()
+            sdl_viewer._process_event(event)
+
+        self.assertFalse(sdl_viewer.running)
+
+    def test_configured_quit_key_disables_escape_quit(self) -> None:
+        class DummyOptions:
+            quit_key = "Q"
+
+        class DummyViewer:
+            options = DummyOptions()
+
+        sdl_viewer = SDLViewer(DummyViewer())
+        sdl_viewer.running = True
+
+        with (
+            patch("galapix_py.sdl_viewer.sdl2.SDL_KEYDOWN", 1),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_ESCAPE", 27),
+        ):
+            event = type("Event", (), {})()
+            event.type = 1
+            event.key = type("Key", (), {"keysym": type("Keysym", (), {"sym": 27, "mod": 0})()})()
+            sdl_viewer._process_event(event)
+
+        self.assertTrue(sdl_viewer.running)
+
+    def test_escape_quits_when_no_quit_key_is_configured(self) -> None:
+        class DummyOptions:
+            quit_key = None
+
+        class DummyViewer:
+            options = DummyOptions()
+
+        sdl_viewer = SDLViewer(DummyViewer())
+        sdl_viewer.running = True
+
+        with (
+            patch("galapix_py.sdl_viewer.sdl2.SDL_KEYDOWN", 1),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_ESCAPE", 27),
+        ):
+            event = type("Event", (), {})()
+            event.type = 1
+            event.key = type("Key", (), {"keysym": type("Keysym", (), {"sym": 27, "mod": 0})()})()
+            sdl_viewer._process_event(event)
+
+        self.assertFalse(sdl_viewer.running)
 
     def test_live_render_validation_waits_for_textured_tiles(self) -> None:
         validation = LiveRenderValidation(timeout=1.0)
@@ -1798,6 +1875,7 @@ class CliViewTests(unittest.TestCase):
             "--selection-border-color", "#B02A37",
             "--show-filenames",
             "--memory-only",
+            "--quit-key", "Q",
             "-r", "test title",
             "/tmp/images",
         ]
@@ -1822,6 +1900,7 @@ class CliViewTests(unittest.TestCase):
         self.assertEqual(opts.spacing, 3)
         self.assertTrue(opts.show_filenames)
         self.assertTrue(opts.memory_only)
+        self.assertEqual(opts.quit_key, "Q")
         self.assertEqual(opts.title, "test title")
         self.assertEqual(captured["patterns"], ["sample"])
 
@@ -1849,6 +1928,7 @@ class CliViewTests(unittest.TestCase):
         self.assertFalse(opts.memory_only)
         self.assertIsNone(opts.sort)
         self.assertIsNone(opts.background_color)
+        self.assertIsNone(opts.quit_key)
 
     def test_cli_view_keyboard_interrupt_returns_130(self) -> None:
         import sys

@@ -31,6 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
             cmd.add_argument("--memory-only", action="store_true")
             cmd.add_argument("--case-insensitive-sort", action="store_true")
             cmd.add_argument("--show-filenames", action="store_true")
+            cmd.add_argument("--quit-key", type=parse_quit_key)
         elif name == "prepare":
             cmd.add_argument("--jpeg-quality", type=int, default=85)
         cmd.add_argument("paths", nargs="*")
@@ -60,6 +61,12 @@ def parse_background_color(text: str) -> tuple[float, float, float, float]:
     except ValueError as exc:
         raise argparse.ArgumentTypeError("background color must be a valid hexadecimal color") from exc
     return red / 255.0, green / 255.0, blue / 255.0, 1.0
+
+
+def parse_quit_key(text: str) -> str:
+    if len(text) != 1:
+        raise argparse.ArgumentTypeError("quit key must be a single character, e.g. q or Q")
+    return text
 
 
 def _run_command(app, args) -> int:
@@ -109,6 +116,7 @@ def main() -> int:
         memory_only=getattr(args, "memory_only", False),
         validate_render=args.validate_render,
         validation_timeout=args.validation_timeout,
+        quit_key=getattr(args, "quit_key", None),
     )
     app = GalapixApp(options)
     try:

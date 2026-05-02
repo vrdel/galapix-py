@@ -26,6 +26,12 @@ def parse_background_color(text: str) -> tuple[float, float, float, float]:
     return red / 255.0, green / 255.0, blue / 255.0, 1.0
 
 
+def parse_quit_key(text: str) -> str:
+    if len(text) != 1:
+        raise argparse.ArgumentTypeError("quit key must be a single character, e.g. q or Q")
+    return text
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="galapix-view")
     parser.add_argument("-d", "--database", default=str(Path.home() / ".galapix-py"))
@@ -45,6 +51,7 @@ def main() -> int:
     parser.add_argument("--memory-only", action="store_true")
     parser.add_argument("--case-insensitive-sort", action="store_true")
     parser.add_argument("--show-filenames", action="store_true")
+    parser.add_argument("--quit-key", type=parse_quit_key)
     parser.add_argument("paths", nargs="*")
     args = parser.parse_args()
 
@@ -70,6 +77,7 @@ def main() -> int:
         memory_only=args.memory_only,
         validate_render=args.validate_render,
         validation_timeout=args.validation_timeout,
+        quit_key=args.quit_key,
     )
     app = GalapixApp(options)
     try:

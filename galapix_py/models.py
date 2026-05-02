@@ -63,6 +63,7 @@ class ViewerOptions:
     memory_only: bool = False
     validate_render: bool = False
     validation_timeout: float = 5.0
+    quit_key: str | None = None
 
 
 @dataclass(slots=True)

@@ -76,6 +76,18 @@ class LiveRenderValidation:
         )
 
 
+def quit_key_matches(configured: str | None, sym: int, modifiers: int) -> bool:
+    if configured is None:
+        return False
+    key = configured[0]
+    if len(key) != 1:
+        return False
+    expected_sym = ord(key.lower())
+    shift_required = key.isalpha() and key.isupper()
+    shift_pressed = bool(modifiers & sdl2.KMOD_SHIFT)
+    return sym == expected_sym and shift_pressed == shift_required
+
+
 class SDLViewer:
     def __init__(
         self,
@@ -288,6 +300,7 @@ class SDLViewer:
             self.viewer.request_redraw()
         elif event.type == sdl2.SDL_KEYDOWN:
             sym = event.key.keysym.sym
+            modifiers = event.key.keysym.mod
             if getattr(self.viewer, "search_active", False):
                 if sym == sdl2.SDLK_ESCAPE:
                     self.viewer.close_search(clear=True)
@@ -300,7 +313,8 @@ class SDLViewer:
                 elif sym == sdl2.SDLK_BACKSPACE:
                     self.viewer.backspace_search()
                 return
-            if sym == sdl2.SDLK_ESCAPE:
+            quit_key = getattr(getattr(self.viewer, "options", None), "quit_key", None)
+            if (quit_key is None and sym == sdl2.SDLK_ESCAPE) or quit_key_matches(quit_key, sym, modifiers):
                 self.running = False
             elif sym == sdl2.SDLK_SLASH:
                 self.viewer.open_search()
