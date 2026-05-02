@@ -2106,6 +2106,12 @@ class GalapixExeTests(unittest.TestCase):
         self.assertEqual(args.command, "prepare")
         self.assertEqual(args.args, ["-t", "8", "/tmp/images"])
 
+    def test_view_defaults_include_shift_q_quit_key(self) -> None:
+        mod = _load_galapix_exe()
+        self.assertIn("--quit-key", mod.VIEW_DEFAULTS)
+        index = mod.VIEW_DEFAULTS.index("--quit-key")
+        self.assertEqual(mod.VIEW_DEFAULTS[index + 1], "Q")
+
 
 if __name__ == "__main__":
     unittest.main()
