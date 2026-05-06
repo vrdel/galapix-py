@@ -355,6 +355,50 @@ class GalapixPyCoreTests(unittest.TestCase):
             finally:
                 database.close()
 
+    def test_prepare_preserves_symlink_name_when_requested(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            target = base / "original.jpg"
+            link = base / "alias.jpg"
+            make_solid_jpeg(target, width=100, height=80, color=(0, 64, 128))
+            try:
+                link.symlink_to(target)
+            except OSError as exc:
+                self.skipTest(f"symlinks unavailable: {exc}")
+
+            options = ViewerOptions(database=base / "db", preserve_symlink_name=True)
+            app = GalapixApp(options)
+            app.prepare([str(link)])
+
+            database = Database(base / "db")
+            try:
+                self.assertIsNotNone(database.get_file_entry(str(link.absolute())))
+                self.assertIsNone(database.get_file_entry(str(target.resolve())))
+            finally:
+                database.close()
+
+    def test_prepare_resolves_symlink_name_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            target = base / "original.jpg"
+            link = base / "alias.jpg"
+            make_solid_jpeg(target, width=100, height=80, color=(0, 64, 128))
+            try:
+                link.symlink_to(target)
+            except OSError as exc:
+                self.skipTest(f"symlinks unavailable: {exc}")
+
+            options = ViewerOptions(database=base / "db")
+            app = GalapixApp(options)
+            app.prepare([str(link)])
+
+            database = Database(base / "db")
+            try:
+                self.assertIsNone(database.get_file_entry(str(link.absolute())))
+                self.assertIsNotNone(database.get_file_entry(str(target.resolve())))
+            finally:
+                database.close()
+
     def test_prepare_all_tiles_regenerates_changed_images(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
@@ -880,6 +924,13 @@ class GalapixPyCoreTests(unittest.TestCase):
         parser = build_parser()
         args = parser.parse_args(["prepare", "--jpeg-quality", "72"])
         self.assertEqual(args.jpeg_quality, 72)
+
+    def test_cli_prepare_accepts_preserve_symlink_name(self) -> None:
+        from galapix_py.cli import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["prepare", "--preserve-symlink-name", "images"])
+        self.assertTrue(args.preserve_symlink_name)
 
     def test_cli_prepare_accepts_pattern(self) -> None:
         from galapix_py.cli import build_parser
@@ -1960,6 +2011,7 @@ class CliPrepareTests(unittest.TestCase):
             "-p", "sample",
             "--ignore-pattern-case",
             "--jpeg-quality", "72",
+            "--preserve-symlink-name",
             "/tmp/images",
         ]
 
@@ -1979,6 +2031,7 @@ class CliPrepareTests(unittest.TestCase):
         opts = captured["options"]
         self.assertEqual(opts.threads, 8)
         self.assertEqual(opts.jpeg_quality, 72)
+        self.assertTrue(opts.preserve_symlink_name)
         self.assertTrue(opts.ignore_pattern_case)
         self.assertEqual(captured["patterns"], ["sample"])
 

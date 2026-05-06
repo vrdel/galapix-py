@@ -76,14 +76,14 @@ def load_image(path: str | Path, access: str = "sequential") -> RasterImage:
         return RasterImage(image.copy())
 
 
-def probe_file_entry(path: str | Path) -> FileEntry:
+def probe_file_entry(path: str | Path, url: str | Path | None = None) -> FileEntry:
     normalized = Path(normalize_path(path))
     image = load_image(normalized, access="sequential")
     mtime_ns, size_bytes = file_stats_for_path(normalized)
     image_format = normalized.suffix.lower().lstrip(".") or "unknown"
     return FileEntry(
         file_id=None,
-        url=str(normalized),
+        url=str(url) if url is not None else str(normalized),
         mtime_ns=mtime_ns,
         size_bytes=size_bytes,
         width=image.width,

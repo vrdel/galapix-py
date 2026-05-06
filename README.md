@@ -96,6 +96,7 @@ Available on `galapix-view` and `galapix-py view`:
 Available on `galapix-prepare` and `galapix-py prepare`:
 
 - `--jpeg-quality N`: JPEG quality for cached tiles (default 85)
+- `--preserve-symlink-name`: when preparing symlinked images, cache entries under the symlink path instead of the resolved target path
 
 ### Notes
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import os
 import re
 import tempfile
 import time
@@ -49,6 +50,27 @@ class GalapixApp:
                 if resolved not in seen:
                             seen.add(resolved)
                             results.append(resolved)
+        return results
+
+    def expand_prepare_paths(self, paths: Iterable[str]) -> list[str]:
+        if not self.options.preserve_symlink_name:
+            return self.expand_paths(paths)
+        results: list[str] = []
+        seen: set[str] = set()
+        for raw in paths:
+            path = Path(raw).expanduser()
+            if path.is_dir():
+                for child in sorted(path.rglob("*")):
+                    if child.is_file() and child.suffix.lower() in {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp"}:
+                        absolute = os.path.abspath(child)
+                        if absolute not in seen:
+                            seen.add(absolute)
+                            results.append(absolute)
+            elif path.exists():
+                absolute = os.path.abspath(path)
+                if absolute not in seen:
+                    seen.add(absolute)
+                    results.append(absolute)
         return results
 
     def expand_cleanup_paths(self, paths: Iterable[str]) -> list[str]:
@@ -168,7 +190,7 @@ class GalapixApp:
         compiled_patterns = self.compile_patterns(patterns)
 
         def prepare_one(path: str, cached_entry, cached_min: int | None, cached_max: int | None):
-            fresh = probe_file_entry(path)
+            fresh = probe_file_entry(path, url=path if self.options.preserve_symlink_name else None)
             is_current = (
                 cached_entry is not None
                 and cached_entry.mtime_ns == fresh.mtime_ns
@@ -198,7 +220,7 @@ class GalapixApp:
 
         database = Database(self.options.database)
         try:
-            expanded = [path for path in self.expand_paths(paths) if self.pattern_matches(path, compiled_patterns)]
+            expanded = [path for path in self.expand_prepare_paths(paths) if self.pattern_matches(path, compiled_patterns)]
             if not expanded:
                 return False
 
