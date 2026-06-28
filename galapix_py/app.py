@@ -108,7 +108,7 @@ class GalapixApp:
         from .database_thread import DatabaseThread
         from .image import Image
         from .jobs import JobManager
-        from .providers import DatabaseTileProvider, InMemoryTileProvider
+        from .providers import DatabaseTileProvider
         from .sdl_viewer import SDLViewer
         from .viewer import Viewer
         from .tiling import probe_file_entry
@@ -116,12 +116,7 @@ class GalapixApp:
 
         jobs = JobManager(self.options.threads)
         workspace = Workspace()
-        database = None
-        db_thread = None
         compiled_patterns = self.compile_patterns(patterns)
-
-        def build_memory_provider(url: str) -> InMemoryTileProvider:
-            return InMemoryTileProvider(jobs, probe_file_entry(url))
 
         def resolve_database_entry(path: str):
             entry = database.get_file_entry(path)
@@ -131,45 +126,34 @@ class GalapixApp:
                 database.delete_file_entry(entry.file_id)
             return database.store_file_entry(probe_file_entry(path))
 
-        if not self.options.memory_only:
-            database = Database(self.options.database)
-            db_thread = DatabaseThread(database, jobs)
+        database = Database(self.options.database)
+        db_thread = DatabaseThread(database, jobs)
 
-            for entry in database.list_files():
-                if self.pattern_matches(entry.url, compiled_patterns):
-                        image = Image(entry.url)
-                        image.set_provider(DatabaseTileProvider(db_thread, entry))
-                        workspace.add_image(image)
+        for entry in database.list_files():
+            if self.pattern_matches(entry.url, compiled_patterns):
+                image = Image(entry.url)
+                image.set_provider(DatabaseTileProvider(db_thread, entry))
+                workspace.add_image(image)
 
         for path in self.expand_paths(paths):
-            image = Image(path)
-            if self.options.memory_only:
-                if self.pattern_matches(path, compiled_patterns):
-                    image.set_provider(build_memory_provider(path))
-                    workspace.add_image(image)
+            if not self.pattern_matches(path, compiled_patterns):
                 continue
+            image = Image(path)
             entry = resolve_database_entry(path)
             image.set_provider(DatabaseTileProvider(db_thread, entry))
             workspace.add_image(image)
 
-        if self.options.memory_only:
-            for image in workspace.images:
-                if image.provider is None:
-                    image.set_provider(build_memory_provider(image.url))
-        else:
-            for image in workspace.images:
-                if image.provider is None:
-                    image.set_provider(DatabaseTileProvider(db_thread, resolve_database_entry(image.url)))
+        for image in workspace.images:
+            if image.provider is None:
+                image.set_provider(DatabaseTileProvider(db_thread, resolve_database_entry(image.url)))
 
         self.apply_initial_sort(workspace)
         workspace.layout_row(spacing=self.row_spacing(), max_per_row=self.options.images_per_row)
         workspace.update(1.0)
 
         try:
-            if db_thread is not None:
-                db_thread.start()
-            provider_factory = build_memory_provider if self.options.memory_only else None
-            viewer = Viewer(self.options, workspace, db_thread, provider_factory=provider_factory)
+            db_thread.start()
+            viewer = Viewer(self.options, workspace, db_thread)
             SDLViewer(
                 viewer,
                 fullscreen=self.options.fullscreen,
@@ -177,11 +161,9 @@ class GalapixApp:
                 validation_timeout=self.options.validation_timeout,
             ).run()
         finally:
-            if db_thread is not None:
-                db_thread.stop()
+            db_thread.stop()
             jobs.shutdown()
-            if database is not None:
-                database.close()
+            database.close()
 
     def prepare(self, paths: Iterable[str], patterns: Iterable[str] = ()) -> bool:
         from .tiling import generate_tiles_for_entry, probe_file_entry

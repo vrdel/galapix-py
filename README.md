@@ -17,7 +17,7 @@ GalapixApp
   -> Image
   -> ImageTileCache
   -> TileProvider
-     -> DatabaseTileProvider / InMemoryTileProvider
+     -> DatabaseTileProvider
   -> DatabaseThread
   -> JobManager
   -> tiling.py helpers
@@ -87,7 +87,6 @@ Available on `galapix-view` and `galapix-py view`:
 - `--case-insensitive-sort`: make name sorting (key `1`) case-insensitive
 - `--background-color RRGGBB`: hex background color (e.g. `4b5262`)
 - `--selection-border-color RRGGBB`: hex selection outline color (e.g. `B02A37`)
-- `--memory-only`: bypass the SQLite tile cache and generate tiles in memory
 - `--show-filenames`: draw filename labels above visible images
 - `--quit-key KEY`: replace the default `Esc` quit shortcut with a single-character key; uppercase letters require Shift (e.g. `Q` means `Shift+q`)
 

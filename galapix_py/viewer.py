@@ -4,7 +4,6 @@ from io import BytesIO
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
 
 import numpy as np
 from PIL import Image as PILImage
@@ -264,12 +263,10 @@ class Viewer:
         options: ViewerOptions,
         workspace: Workspace,
         db_thread: DatabaseThread | None,
-        provider_factory: Callable[[str], object] | None = None,
     ) -> None:
         self.options = options
         self.workspace = workspace
         self.db_thread = db_thread
-        self.provider_factory = provider_factory
         self.state = ViewerState()
         self.texture_cache = TextureCache()
         self.label_textures: dict[str, LabelTexture] = {}
@@ -753,8 +750,6 @@ class Viewer:
 
     def _draw_image(self, image: Image, stats: FrameRenderStats) -> None:
         img_left, img_top, img_right, img_bottom = image.rect()
-        if image.provider is None and self.provider_factory is not None:
-            image.set_provider(self.provider_factory(image.url))
         if image.provider is None:
             left, top = self.world_to_screen(img_left, img_top)
             right, bottom = self.world_to_screen(img_right, img_bottom)

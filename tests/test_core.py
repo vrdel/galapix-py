@@ -4,7 +4,6 @@ import importlib
 import io
 import sys
 import tempfile
-import threading
 import time
 import unittest
 from contextlib import redirect_stdout
@@ -16,9 +15,7 @@ from PIL import Image as PILImage
 from galapix_py.app import GalapixApp
 from galapix_py.database import Database
 from galapix_py.image import Image, ImageTileCache
-from galapix_py.jobs import JobManager
 from galapix_py.models import TileRecord, ViewerOptions
-from galapix_py.providers import InMemoryTileProvider
 from galapix_py.sdl_viewer import LiveRenderValidation, SDLViewer, configure_app_identity_hint, quit_key_matches, set_x11_window_class
 from galapix_py.tiling import generate_tiles_for_entry, probe_file_entry
 from galapix_py.viewer import (
@@ -569,7 +566,7 @@ class GalapixPyCoreTests(unittest.TestCase):
             image_path = base / "MixedCase.jpg"
             make_solid_jpeg(image_path, width=120, height=80, color=(0, 64, 128))
 
-            options = ViewerOptions(database=base / "db", ignore_pattern_case=True, memory_only=True)
+            options = ViewerOptions(database=base / "db", ignore_pattern_case=True)
             app = GalapixApp(options)
 
             class StopViewer(Exception):
@@ -598,7 +595,7 @@ class GalapixPyCoreTests(unittest.TestCase):
             make_solid_jpeg(second, width=120, height=80, color=(0, 64, 128))
             make_solid_jpeg(third, width=120, height=80, color=(0, 64, 128))
 
-            options = ViewerOptions(database=base / "db", memory_only=True)
+            options = ViewerOptions(database=base / "db")
             app = GalapixApp(options)
 
             class StopViewer(Exception):
@@ -904,12 +901,10 @@ class GalapixPyCoreTests(unittest.TestCase):
                 "--geometry",
                 "1920x1080",
                 "--fullscreen",
-                "--memory-only",
             ]
         )
         self.assertEqual(args.geometry, "1920x1080")
         self.assertTrue(args.fullscreen)
-        self.assertTrue(args.memory_only)
 
     def test_cli_prepare_rejects_view_only_flags(self) -> None:
         from galapix_py.cli import build_parser
@@ -1211,51 +1206,6 @@ class GalapixPyCoreTests(unittest.TestCase):
         self.assertEqual(fake_x11.window, 456)
         self.assertEqual(fake_x11.hint, (b"galapix-py", b"galapix-py"))
         self.assertEqual(fake_x11.flushed, 123)
-
-    def test_in_memory_tile_provider_generates_tile_without_database_cache(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            base = Path(tmpdir)
-            image_path = make_test_jpeg(base, width=320, height=240)
-            entry = probe_file_entry(image_path)
-            jobs = JobManager(1)
-            try:
-                provider = InMemoryTileProvider(jobs, entry)
-                delivered: list[object] = []
-                delivered_event = threading.Event()
-
-                handle = provider.request_tile(
-                    entry.thumbnail_scale,
-                    0,
-                    0,
-                    lambda tile: (delivered.append(tile), delivered_event.set()),
-                )
-                self.assertIsNotNone(handle.future)
-                handle.future.result(timeout=3)
-                self.assertTrue(delivered_event.wait(timeout=1))
-                self.assertEqual(len(delivered), 1)
-                self.assertEqual(delivered[0].x, 0)
-                self.assertEqual(delivered[0].y, 0)
-            finally:
-                jobs.shutdown()
-
-    def test_in_memory_tile_provider_evicts_old_scaled_images(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            base = Path(tmpdir)
-            image_path = make_test_jpeg(base, width=1024, height=1024)
-            entry = probe_file_entry(image_path)
-            jobs = JobManager(1)
-            try:
-                provider = InMemoryTileProvider(jobs, entry, max_cached_scales=2)
-                provider._get_scaled_image(0)
-                provider._get_scaled_image(1)
-                provider._get_scaled_image(2)
-                self.assertEqual(list(provider._scaled_images.keys()), [1, 2])
-
-                provider._get_scaled_image(1)
-                provider._get_scaled_image(3)
-                self.assertEqual(list(provider._scaled_images.keys()), [1, 3])
-            finally:
-                jobs.shutdown()
 
     def test_image_tile_cache_evicts_oldest_tiles(self) -> None:
         class DummyProvider:
@@ -1925,7 +1875,6 @@ class CliViewTests(unittest.TestCase):
             "--background-color", "#4b5262",
             "--selection-border-color", "#B02A37",
             "--show-filenames",
-            "--memory-only",
             "--quit-key", "Q",
             "-r", "test title",
             "/tmp/images",
@@ -1950,7 +1899,6 @@ class CliViewTests(unittest.TestCase):
         self.assertEqual(opts.height, 1080)
         self.assertEqual(opts.spacing, 3)
         self.assertTrue(opts.show_filenames)
-        self.assertTrue(opts.memory_only)
         self.assertEqual(opts.quit_key, "Q")
         self.assertEqual(opts.title, "test title")
         self.assertEqual(captured["patterns"], ["sample"])
@@ -1976,7 +1924,6 @@ class CliViewTests(unittest.TestCase):
         self.assertEqual(opts.height, 720)
         self.assertFalse(opts.fullscreen)
         self.assertFalse(opts.show_filenames)
-        self.assertFalse(opts.memory_only)
         self.assertIsNone(opts.sort)
         self.assertIsNone(opts.background_color)
         self.assertIsNone(opts.quit_key)

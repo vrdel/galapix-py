@@ -28,7 +28,6 @@ def build_parser() -> argparse.ArgumentParser:
             cmd.add_argument("--spacing", type=int, default=1)
             cmd.add_argument("--background-color", type=parse_background_color, default=None)
             cmd.add_argument("--selection-border-color", type=parse_background_color, default=None)
-            cmd.add_argument("--memory-only", action="store_true")
             cmd.add_argument("--case-insensitive-sort", action="store_true")
             cmd.add_argument("--show-filenames", action="store_true")
             cmd.add_argument("--quit-key", type=parse_quit_key)
@@ -115,7 +114,6 @@ def main() -> int:
         selection_border_color=getattr(args, "selection_border_color", None),
         case_insensitive_sort=getattr(args, "case_insensitive_sort", False),
         show_filenames=getattr(args, "show_filenames", False),
-        memory_only=getattr(args, "memory_only", False),
         validate_render=args.validate_render,
         validation_timeout=args.validation_timeout,
         quit_key=getattr(args, "quit_key", None),
