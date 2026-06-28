@@ -50,6 +50,7 @@ def main() -> int:
     parser.add_argument("--selection-border-color", type=parse_background_color, default=None)
     parser.add_argument("--case-insensitive-sort", action="store_true")
     parser.add_argument("--show-filenames", action="store_true")
+    parser.add_argument("--temp-cache", action="store_true")
     parser.add_argument("--quit-key", type=parse_quit_key)
     parser.add_argument("paths", nargs="*")
     args = parser.parse_args()
@@ -73,6 +74,7 @@ def main() -> int:
         selection_border_color=args.selection_border_color,
         case_insensitive_sort=args.case_insensitive_sort,
         show_filenames=args.show_filenames,
+        temp_cache=args.temp_cache,
         validate_render=args.validate_render,
         validation_timeout=args.validation_timeout,
         quit_key=args.quit_key,

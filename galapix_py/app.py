@@ -117,6 +117,7 @@ class GalapixApp:
         jobs = JobManager(self.options.threads)
         workspace = Workspace()
         compiled_patterns = self.compile_patterns(patterns)
+        temp_cache_dir = None
 
         def resolve_database_entry(path: str):
             entry = database.get_file_entry(path)
@@ -126,14 +127,20 @@ class GalapixApp:
                 database.delete_file_entry(entry.file_id)
             return database.store_file_entry(probe_file_entry(path))
 
-        database = Database(self.options.database)
+        database_root = self.options.database
+        if self.options.temp_cache:
+            temp_cache_dir = tempfile.TemporaryDirectory(prefix="galapix-py-view-")
+            database_root = Path(temp_cache_dir.name) / "db"
+
+        database = Database(database_root)
         db_thread = DatabaseThread(database, jobs)
 
-        for entry in database.list_files():
-            if self.pattern_matches(entry.url, compiled_patterns):
-                image = Image(entry.url)
-                image.set_provider(DatabaseTileProvider(db_thread, entry))
-                workspace.add_image(image)
+        if not self.options.temp_cache:
+            for entry in database.list_files():
+                if self.pattern_matches(entry.url, compiled_patterns):
+                    image = Image(entry.url)
+                    image.set_provider(DatabaseTileProvider(db_thread, entry))
+                    workspace.add_image(image)
 
         for path in self.expand_paths(paths):
             if not self.pattern_matches(path, compiled_patterns):
@@ -164,6 +171,8 @@ class GalapixApp:
             db_thread.stop()
             jobs.shutdown()
             database.close()
+            if temp_cache_dir is not None:
+                temp_cache_dir.cleanup()
 
     def prepare(self, paths: Iterable[str], patterns: Iterable[str] = ()) -> bool:
         from .tiling import generate_tiles_for_entry, probe_file_entry
