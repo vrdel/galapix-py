@@ -514,14 +514,21 @@ class GalapixPyCoreTests(unittest.TestCase):
                 workspace = self.viewer.workspace
                 captured["workspace"] = workspace
                 captured["temp_root"] = workspace.images[0].provider.db_thread.database.root
+                database = workspace.images[0].provider.db_thread.database
+                entry = database.get_file_entry(str(direct.resolve()))
+                captured["temp_tile_count"] = database.count_tiles_for_file(entry.file_id)
+                captured["temp_min_max_scale"] = database.get_min_max_scale(entry.file_id)
                 raise StopViewer()
 
-            with patch("galapix_py.sdl_viewer.SDLViewer.run", new=fake_run):
+            with patch("galapix_py.sdl_viewer.SDLViewer.run", new=fake_run), \
+                 patch("galapix_py.database_thread.generate_tiles_for_entry", side_effect=AssertionError("view should use pregenerated cache")):
                 with self.assertRaises(StopViewer):
                     app.view([str(direct)])
 
             workspace = captured["workspace"]
             self.assertEqual([Path(image.url).name for image in workspace.images], ["direct.jpg"])
+            self.assertGreater(captured["temp_tile_count"], 0)
+            self.assertEqual(captured["temp_min_max_scale"], (0, workspace.images[0].provider.get_max_scale()))
             self.assertFalse(captured["temp_root"].exists())
 
             persistent_database = Database(base / "db")

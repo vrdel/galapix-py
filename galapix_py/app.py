@@ -111,13 +111,13 @@ class GalapixApp:
         from .providers import DatabaseTileProvider
         from .sdl_viewer import SDLViewer
         from .viewer import Viewer
-        from .tiling import probe_file_entry
         from .workspace import Workspace
 
         jobs = JobManager(self.options.threads)
         workspace = Workspace()
         compiled_patterns = self.compile_patterns(patterns)
         temp_cache_dir = None
+        db_thread_started = False
 
         def resolve_database_entry(path: str):
             entry = database.get_file_entry(path)
@@ -125,6 +125,7 @@ class GalapixApp:
                 return entry
             if entry is not None and entry.file_id is not None:
                 database.delete_file_entry(entry.file_id)
+            from .tiling import probe_file_entry
             return database.store_file_entry(probe_file_entry(path))
 
         database_root = self.options.database
@@ -133,33 +134,36 @@ class GalapixApp:
             database_root = Path(temp_cache_dir.name) / "db"
 
         database = Database(database_root)
-        db_thread = DatabaseThread(database, jobs)
+        try:
+            if self.options.temp_cache:
+                self._prepare_database(database, paths, patterns, emit_summary=False)
 
-        if not self.options.temp_cache:
+            db_thread = DatabaseThread(database, jobs)
             for entry in database.list_files():
                 if self.pattern_matches(entry.url, compiled_patterns):
                     image = Image(entry.url)
                     image.set_provider(DatabaseTileProvider(db_thread, entry))
                     workspace.add_image(image)
 
-        for path in self.expand_paths(paths):
-            if not self.pattern_matches(path, compiled_patterns):
-                continue
-            image = Image(path)
-            entry = resolve_database_entry(path)
-            image.set_provider(DatabaseTileProvider(db_thread, entry))
-            workspace.add_image(image)
+            if not self.options.temp_cache:
+                for path in self.expand_paths(paths):
+                    if not self.pattern_matches(path, compiled_patterns):
+                        continue
+                    image = Image(path)
+                    entry = resolve_database_entry(path)
+                    image.set_provider(DatabaseTileProvider(db_thread, entry))
+                    workspace.add_image(image)
 
-        for image in workspace.images:
-            if image.provider is None:
-                image.set_provider(DatabaseTileProvider(db_thread, resolve_database_entry(image.url)))
+                for image in workspace.images:
+                    if image.provider is None:
+                        image.set_provider(DatabaseTileProvider(db_thread, resolve_database_entry(image.url)))
 
-        self.apply_initial_sort(workspace)
-        workspace.layout_row(spacing=self.row_spacing(), max_per_row=self.options.images_per_row)
-        workspace.update(1.0)
+            self.apply_initial_sort(workspace)
+            workspace.layout_row(spacing=self.row_spacing(), max_per_row=self.options.images_per_row)
+            workspace.update(1.0)
 
-        try:
             db_thread.start()
+            db_thread_started = True
             viewer = Viewer(self.options, workspace, db_thread)
             SDLViewer(
                 viewer,
@@ -168,13 +172,21 @@ class GalapixApp:
                 validation_timeout=self.options.validation_timeout,
             ).run()
         finally:
-            db_thread.stop()
+            if db_thread_started:
+                db_thread.stop()
             jobs.shutdown()
             database.close()
             if temp_cache_dir is not None:
                 temp_cache_dir.cleanup()
 
-    def prepare(self, paths: Iterable[str], patterns: Iterable[str] = ()) -> bool:
+    def _prepare_database(
+        self,
+        database: Database,
+        paths: Iterable[str],
+        patterns: Iterable[str] = (),
+        *,
+        emit_summary: bool = True,
+    ) -> bool:
         from .tiling import generate_tiles_for_entry, probe_file_entry
 
         started_at = time.perf_counter()
@@ -209,57 +221,56 @@ class GalapixApp:
             )
             return path, fresh, False, tiles
 
-        database = Database(self.options.database)
-        try:
-            expanded = [path for path in self.expand_prepare_paths(paths) if self.pattern_matches(path, compiled_patterns)]
-            if not expanded:
-                return False
+        expanded = [path for path in self.expand_prepare_paths(paths) if self.pattern_matches(path, compiled_patterns)]
+        if not expanded:
+            return False
 
-            worker_count = max(1, self.options.threads)
-            skipped = 0
-            prepared = 0
-            stored_tiles = 0
-            with database.bulk_writes():
-                with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
-                    pending: dict[concurrent.futures.Future, tuple[str, object | None]] = {}
-                    path_iter = iter(expanded)
+        worker_count = max(1, self.options.threads)
+        skipped = 0
+        prepared = 0
+        stored_tiles = 0
+        with database.bulk_writes():
+            with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
+                pending: dict[concurrent.futures.Future, tuple[str, object | None]] = {}
+                path_iter = iter(expanded)
 
-                    def submit_next() -> bool:
-                        try:
-                            path = next(path_iter)
-                        except StopIteration:
-                            return False
-                        cached_entry = database.get_file_entry(path)
-                        cached_min = cached_max = None
-                        if cached_entry is not None and cached_entry.file_id is not None:
-                            cached_min, cached_max = database.get_min_max_scale(cached_entry.file_id)
-                        pending[executor.submit(prepare_one, path, cached_entry, cached_min, cached_max)] = (path, cached_entry)
-                        return True
+                def submit_next() -> bool:
+                    try:
+                        path = next(path_iter)
+                    except StopIteration:
+                        return False
+                    cached_entry = database.get_file_entry(path)
+                    cached_min = cached_max = None
+                    if cached_entry is not None and cached_entry.file_id is not None:
+                        cached_min, cached_max = database.get_min_max_scale(cached_entry.file_id)
+                    pending[executor.submit(prepare_one, path, cached_entry, cached_min, cached_max)] = (path, cached_entry)
+                    return True
 
-                    for _ in range(worker_count):
-                        if not submit_next():
-                            break
+                for _ in range(worker_count):
+                    if not submit_next():
+                        break
 
-                    while pending:
-                        done, _ = concurrent.futures.wait(
-                            pending.keys(),
-                            return_when=concurrent.futures.FIRST_COMPLETED,
-                        )
-                        for future in done:
-                            path, cached_entry = pending.pop(future)
-                            _, fresh, should_skip, tiles = future.result()
-                            if should_skip:
-                                skipped += 1
-                                submit_next()
-                                continue
-                            if cached_entry is not None and cached_entry.file_id is not None:
-                                database.delete_file_entry(cached_entry.file_id, commit=False)
-                            stored_entry = database.store_file_entry(fresh, commit=False)
-                            database.store_tiles(stored_entry.file_id, tiles, commit=False)
-                            prepared += 1
-                            stored_tiles += len(tiles)
+                while pending:
+                    done, _ = concurrent.futures.wait(
+                        pending.keys(),
+                        return_when=concurrent.futures.FIRST_COMPLETED,
+                    )
+                    for future in done:
+                        path, cached_entry = pending.pop(future)
+                        _, fresh, should_skip, tiles = future.result()
+                        if should_skip:
+                            skipped += 1
                             submit_next()
-            pending_count = len(expanded) - skipped
+                            continue
+                        if cached_entry is not None and cached_entry.file_id is not None:
+                            database.delete_file_entry(cached_entry.file_id, commit=False)
+                        stored_entry = database.store_file_entry(fresh, commit=False)
+                        database.store_tiles(stored_entry.file_id, tiles, commit=False)
+                        prepared += 1
+                        stored_tiles += len(tiles)
+                        submit_next()
+        pending_count = len(expanded) - skipped
+        if emit_summary:
             print("galapix-py")
             print(f"  database: {database.path}")
             print(f"  discovered: {len(expanded)}")
@@ -269,7 +280,12 @@ class GalapixApp:
             print(f"  prepared: {prepared}")
             print(f"  stored_tiles: {stored_tiles}")
             print(f"  elapsed: {self._format_elapsed(time.perf_counter() - started_at)}")
-            return stored_tiles > 0
+        return stored_tiles > 0
+
+    def prepare(self, paths: Iterable[str], patterns: Iterable[str] = ()) -> bool:
+        database = Database(self.options.database)
+        try:
+            return self._prepare_database(database, paths, patterns)
         finally:
             database.close()
 
