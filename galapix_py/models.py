@@ -61,6 +61,7 @@ class ViewerOptions:
     selection_border_color: tuple[float, float, float, float] | None = None
     case_insensitive_sort: bool = False
     show_filenames: bool = False
+    temp_cache: bool = False
     validate_render: bool = False
     validation_timeout: float = 5.0
     quit_key: str | None = None

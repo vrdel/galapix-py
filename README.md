@@ -88,6 +88,7 @@ Available on `galapix-view` and `galapix-py view`:
 - `--background-color RRGGBB`: hex background color (e.g. `4b5262`)
 - `--selection-border-color RRGGBB`: hex selection outline color (e.g. `B02A37`)
 - `--show-filenames`: draw filename labels above visible images
+- `--temp-cache`: use a temporary SQLite tile cache for this view run and delete it on exit
 - `--quit-key KEY`: replace the default `Esc` quit shortcut with a single-character key; uppercase letters require Shift (e.g. `Q` means `Shift+q`)
 
 ### Prepare options

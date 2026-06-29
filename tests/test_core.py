@@ -488,6 +488,56 @@ class GalapixPyCoreTests(unittest.TestCase):
             self.assertEqual(workspace.images[1].size(), (160, 300))
             self.assertLess(workspace.images[0].placement.x, workspace.images[1].placement.x)
 
+    def test_view_temp_cache_uses_temporary_database_for_direct_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            cached = base / "cached.jpg"
+            direct = base / "direct.jpg"
+            make_solid_jpeg(cached, width=120, height=80, color=(0, 64, 128))
+            make_solid_jpeg(direct, width=160, height=90, color=(128, 64, 0))
+
+            persistent_database = Database(base / "db")
+            try:
+                persistent_database.store_file_entry(probe_file_entry(cached))
+            finally:
+                persistent_database.close()
+
+            options = ViewerOptions(database=base / "db", temp_cache=True)
+            app = GalapixApp(options)
+
+            class StopViewer(Exception):
+                pass
+
+            captured = {}
+
+            def fake_run(self) -> None:
+                workspace = self.viewer.workspace
+                captured["workspace"] = workspace
+                captured["temp_root"] = workspace.images[0].provider.db_thread.database.root
+                database = workspace.images[0].provider.db_thread.database
+                entry = database.get_file_entry(str(direct.resolve()))
+                captured["temp_tile_count"] = database.count_tiles_for_file(entry.file_id)
+                captured["temp_min_max_scale"] = database.get_min_max_scale(entry.file_id)
+                raise StopViewer()
+
+            with patch("galapix_py.sdl_viewer.SDLViewer.run", new=fake_run), \
+                 patch("galapix_py.database_thread.generate_tiles_for_entry", side_effect=AssertionError("view should use pregenerated cache")):
+                with self.assertRaises(StopViewer):
+                    app.view([str(direct)])
+
+            workspace = captured["workspace"]
+            self.assertEqual([Path(image.url).name for image in workspace.images], ["direct.jpg"])
+            self.assertGreater(captured["temp_tile_count"], 0)
+            self.assertEqual(captured["temp_min_max_scale"], (0, workspace.images[0].provider.get_max_scale()))
+            self.assertFalse(captured["temp_root"].exists())
+
+            persistent_database = Database(base / "db")
+            try:
+                self.assertIsNotNone(persistent_database.get_file_entry(str(cached.resolve())))
+                self.assertIsNone(persistent_database.get_file_entry(str(direct.resolve())))
+            finally:
+                persistent_database.close()
+
     def test_view_sort_name_orders_initial_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
@@ -901,10 +951,12 @@ class GalapixPyCoreTests(unittest.TestCase):
                 "--geometry",
                 "1920x1080",
                 "--fullscreen",
+                "--temp-cache",
             ]
         )
         self.assertEqual(args.geometry, "1920x1080")
         self.assertTrue(args.fullscreen)
+        self.assertTrue(args.temp_cache)
 
     def test_cli_prepare_rejects_view_only_flags(self) -> None:
         from galapix_py.cli import build_parser
@@ -1875,6 +1927,7 @@ class CliViewTests(unittest.TestCase):
             "--background-color", "#4b5262",
             "--selection-border-color", "#B02A37",
             "--show-filenames",
+            "--temp-cache",
             "--quit-key", "Q",
             "-r", "test title",
             "/tmp/images",
@@ -1899,6 +1952,7 @@ class CliViewTests(unittest.TestCase):
         self.assertEqual(opts.height, 1080)
         self.assertEqual(opts.spacing, 3)
         self.assertTrue(opts.show_filenames)
+        self.assertTrue(opts.temp_cache)
         self.assertEqual(opts.quit_key, "Q")
         self.assertEqual(opts.title, "test title")
         self.assertEqual(captured["patterns"], ["sample"])
@@ -1924,6 +1978,7 @@ class CliViewTests(unittest.TestCase):
         self.assertEqual(opts.height, 720)
         self.assertFalse(opts.fullscreen)
         self.assertFalse(opts.show_filenames)
+        self.assertFalse(opts.temp_cache)
         self.assertIsNone(opts.sort)
         self.assertIsNone(opts.background_color)
         self.assertIsNone(opts.quit_key)
