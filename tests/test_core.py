@@ -17,6 +17,7 @@ from galapix_py.database import Database
 from galapix_py.image import Image, ImageTileCache
 from galapix_py.models import TileRecord, ViewerOptions
 from galapix_py.sdl_viewer import LiveRenderValidation, SDLViewer, configure_app_identity_hint, quit_key_matches, set_x11_window_class
+from galapix_py import tiling
 from galapix_py.tiling import generate_tiles_for_entry, probe_file_entry
 from galapix_py.viewer import (
     FrameRenderStats,
@@ -66,6 +67,28 @@ class GalapixPyCoreTests(unittest.TestCase):
             self.assertTrue(tiles)
             self.assertEqual(tiles[0].x, 0)
             self.assertEqual(tiles[0].y, 0)
+
+    def test_full_pyramid_reuses_intermediate_resizes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            image_path = make_test_jpeg(Path(tmpdir), width=1024, height=768)
+            entry = probe_file_entry(image_path)
+            resize_calls = []
+            original = tiling.RasterImage.thumbnail_image
+
+            def record_resize(self, width: int, height: int, size: str = "force"):
+                resize_calls.append((self.width, self.height, width, height))
+                return original(self, width, height, size=size)
+
+            with patch.object(tiling.RasterImage, "thumbnail_image", new=record_resize):
+                tiles = list(generate_tiles_for_entry(entry, 0, entry.thumbnail_scale))
+
+            self.assertTrue(tiles)
+            original_downsamples = [
+                call for call in resize_calls
+                if call[0:2] == (entry.width, entry.height) and call[2:4] != (entry.width, entry.height)
+            ]
+            self.assertEqual(original_downsamples, [(1024, 768, 512, 384)])
+            self.assertIn((512, 384, 256, 192), resize_calls)
 
     def test_database_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
