@@ -430,10 +430,16 @@ class GalapixPyCoreTests(unittest.TestCase):
             time.sleep(0.01)
             make_solid_jpeg(image_path, width=400, height=200, color=(0, 16, 200))
 
-            original = generate_tiles_for_entry
-            with patch("galapix_py.tiling.generate_tiles_for_entry", wraps=original) as wrapped:
-                app.prepare([str(image_path)])
-            self.assertTrue(wrapped.called)
+            app.prepare([str(image_path)])
+
+            database = Database(base / "db")
+            try:
+                entry = database.get_file_entry(str(image_path))
+                self.assertEqual(entry.width, 400)
+                self.assertEqual(entry.height, 200)
+                self.assertEqual(database.count_tiles_for_file(entry.file_id), 3)
+            finally:
+                database.close()
 
     def test_prepare_passes_configured_jpeg_quality(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -442,12 +448,16 @@ class GalapixPyCoreTests(unittest.TestCase):
             options = ViewerOptions(database=base / "db", jpeg_quality=72)
             app = GalapixApp(options)
 
-            original = generate_tiles_for_entry
-            with patch("galapix_py.tiling.generate_tiles_for_entry", wraps=original) as wrapped:
-                app.prepare([str(image_path)])
+            app.prepare([str(image_path)])
 
-            self.assertTrue(wrapped.called)
-            self.assertEqual(wrapped.call_args.kwargs["quality"], 72)
+            database = Database(base / "db")
+            try:
+                entry = database.get_file_entry(str(image_path))
+                stored_tile = database.get_tile(entry.file_id, 0, 0, 0)
+                expected_tile = next(generate_tiles_for_entry(probe_file_entry(image_path), 0, 0, quality=72))
+                self.assertEqual(stored_tile.jpeg_bytes, expected_tile.jpeg_bytes)
+            finally:
+                database.close()
 
     def test_prepare_all_tiles_rebuilds_when_cached_entry_dimensions_are_stale(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -475,10 +485,16 @@ class GalapixPyCoreTests(unittest.TestCase):
             finally:
                 database.close()
 
-            original = generate_tiles_for_entry
-            with patch("galapix_py.tiling.generate_tiles_for_entry", wraps=original) as wrapped:
-                app.prepare([str(image_path)])
-            self.assertTrue(wrapped.called)
+            app.prepare([str(image_path)])
+
+            database = Database(base / "db")
+            try:
+                entry = database.get_file_entry(str(image_path))
+                self.assertEqual(entry.width, 320)
+                self.assertEqual(entry.height, 240)
+                self.assertEqual(database.count_tiles_for_file(entry.file_id), 3)
+            finally:
+                database.close()
 
     def test_view_uncached_files_are_stored_before_layout(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

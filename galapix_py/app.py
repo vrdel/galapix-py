@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import multiprocessing
 import os
 import re
 import tempfile
@@ -9,7 +10,52 @@ from pathlib import Path
 from typing import Iterable
 
 from .database import Database
-from .models import ViewerOptions
+from .models import FileEntry, TileRecord, ViewerOptions
+
+
+def _prepare_one(
+    path: str,
+    cached_entry: FileEntry | None,
+    cached_min: int | None,
+    cached_max: int | None,
+    preserve_symlink_name: bool,
+    jpeg_quality: int,
+) -> tuple[str, FileEntry, bool, list[TileRecord]]:
+    from .tiling import generate_tiles_for_entry, probe_file_entry
+
+    fresh = probe_file_entry(path, url=path if preserve_symlink_name else None)
+    is_current = (
+        cached_entry is not None
+        and cached_entry.mtime_ns == fresh.mtime_ns
+        and cached_entry.size_bytes == fresh.size_bytes
+        and cached_entry.width == fresh.width
+        and cached_entry.height == fresh.height
+        and cached_entry.image_format == fresh.image_format
+    )
+    is_complete = (
+        is_current
+        and cached_min is not None
+        and cached_max is not None
+        and cached_min <= 0
+        and cached_max >= fresh.thumbnail_scale
+    )
+    if is_complete:
+        return path, fresh, True, []
+    tiles = list(
+        generate_tiles_for_entry(
+            fresh,
+            0,
+            fresh.thumbnail_scale,
+            quality=jpeg_quality,
+        )
+    )
+    return path, fresh, False, tiles
+
+
+def _prepare_process_pool_kwargs() -> dict[str, object]:
+    if "fork" in multiprocessing.get_all_start_methods():
+        return {"mp_context": multiprocessing.get_context("fork")}
+    return {}
 
 
 class GalapixApp:
@@ -187,39 +233,8 @@ class GalapixApp:
         *,
         emit_summary: bool = True,
     ) -> bool:
-        from .tiling import generate_tiles_for_entry, probe_file_entry
-
         started_at = time.perf_counter()
         compiled_patterns = self.compile_patterns(patterns)
-
-        def prepare_one(path: str, cached_entry, cached_min: int | None, cached_max: int | None):
-            fresh = probe_file_entry(path, url=path if self.options.preserve_symlink_name else None)
-            is_current = (
-                cached_entry is not None
-                and cached_entry.mtime_ns == fresh.mtime_ns
-                and cached_entry.size_bytes == fresh.size_bytes
-                and cached_entry.width == fresh.width
-                and cached_entry.height == fresh.height
-                and cached_entry.image_format == fresh.image_format
-            )
-            is_complete = (
-                is_current
-                and cached_min is not None
-                and cached_max is not None
-                and cached_min <= 0
-                and cached_max >= fresh.thumbnail_scale
-            )
-            if is_complete:
-                return path, fresh, True, []
-            tiles = list(
-                generate_tiles_for_entry(
-                    fresh,
-                    0,
-                    fresh.thumbnail_scale,
-                    quality=self.options.jpeg_quality,
-                )
-            )
-            return path, fresh, False, tiles
 
         expanded = [path for path in self.expand_prepare_paths(paths) if self.pattern_matches(path, compiled_patterns)]
         if not expanded:
@@ -230,7 +245,10 @@ class GalapixApp:
         prepared = 0
         stored_tiles = 0
         with database.bulk_writes():
-            with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
+            with concurrent.futures.ProcessPoolExecutor(
+                max_workers=worker_count,
+                **_prepare_process_pool_kwargs(),
+            ) as executor:
                 pending: dict[concurrent.futures.Future, tuple[str, object | None]] = {}
                 path_iter = iter(expanded)
 
@@ -243,7 +261,17 @@ class GalapixApp:
                     cached_min = cached_max = None
                     if cached_entry is not None and cached_entry.file_id is not None:
                         cached_min, cached_max = database.get_min_max_scale(cached_entry.file_id)
-                    pending[executor.submit(prepare_one, path, cached_entry, cached_min, cached_max)] = (path, cached_entry)
+                    pending[
+                        executor.submit(
+                            _prepare_one,
+                            path,
+                            cached_entry,
+                            cached_min,
+                            cached_max,
+                            self.options.preserve_symlink_name,
+                            self.options.jpeg_quality,
+                        )
+                    ] = (path, cached_entry)
                     return True
 
                 for _ in range(worker_count):
