@@ -32,6 +32,8 @@ class RasterImage:
     def thumbnail_image(self, width: int, height: int, size: str = "force") -> "RasterImage":
         if size != "force":
             raise ValueError(f"unsupported thumbnail size mode: {size}")
+        if self._image.size == (width, height):
+            return self
         resized = self._image.resize((width, height), RESAMPLE_LANCZOS)
         return RasterImage(resized)
 
@@ -108,12 +110,21 @@ def generate_tiles_for_entry(
     quality: int = 85,
 ) -> Iterator[TileRecord]:
     image = load_image(entry.url, access="random")
+    scaled = image
     for scale in range(min_scale, max_scale + 1):
-        factor = 2 ** scale
-        width = max(1, math.ceil(entry.width / factor))
-        height = max(1, math.ceil(entry.height / factor))
-        scaled = image.thumbnail_image(width, height=height, size="force")
+        width, height = _scaled_dimensions(entry, scale)
+        if scale == min_scale:
+            scaled = image.thumbnail_image(width, height=height, size="force")
+        elif scaled.width != width or scaled.height != height:
+            scaled = scaled.thumbnail_image(width, height=height, size="force")
         yield from cut_surface_into_tiles(scaled, scale, quality=quality)
+
+
+def _scaled_dimensions(entry: FileEntry, scale: int) -> tuple[int, int]:
+    factor = 2 ** scale
+    width = max(1, math.ceil(entry.width / factor))
+    height = max(1, math.ceil(entry.height / factor))
+    return width, height
 
 
 def cut_surface_into_tiles(image: RasterImage, scale: int, quality: int = 85) -> Iterator[TileRecord]:
