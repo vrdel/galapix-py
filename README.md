@@ -183,6 +183,7 @@ Selection and editing:
     - `Esc`: close the search box and clear the current filter
 - `Delete`: delete current selection from the workspace
 - `F5`: refresh selected images from disk / database
+- `o`: open selected image in a separate single-image viewer window with the current background color
 
 Layout and ordering:
 

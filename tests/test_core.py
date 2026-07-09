@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import io
+import subprocess
 import sys
 import tempfile
 import time
@@ -1160,6 +1161,93 @@ class GalapixPyCoreTests(unittest.TestCase):
 
         self.assertEqual(calls, ["home"])
         self.assertTrue(viewer.redraw_requested)
+
+    def test_keydown_o_opens_selected_image_in_new_viewer(self) -> None:
+        class DummyImage:
+            url = "/tmp/sample.jpg"
+
+        class DummyWorkspace:
+            def filtered_selected_images(self):
+                return [DummyImage()]
+
+            def selected_images(self):
+                return []
+
+        class DummyViewer:
+            def __init__(self) -> None:
+                self.workspace = DummyWorkspace()
+                self.options = ViewerOptions(
+                    database=Path("/tmp/test-db"),
+                    threads=2,
+                    width=800,
+                    height=600,
+                    title="main viewer",
+                    quit_key="Q",
+                )
+                self.background_colors = [
+                    (0.0, 0.0, 0.0, 1.0),
+                    (0.2, 0.4, 0.6, 1.0),
+                ]
+                self.background_index = 1
+
+        viewer = DummyViewer()
+        sdl_viewer = SDLViewer(viewer)
+
+        with (
+            patch("galapix_py.sdl_viewer.sdl2.SDL_KEYDOWN", 1),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_o", 111),
+            patch("galapix_py.sdl_viewer.subprocess.Popen") as popen,
+        ):
+            event = type("Event", (), {})()
+            event.type = 1
+            event.key = type("Key", (), {"keysym": type("Keysym", (), {"sym": 111, "mod": 0})()})()
+            sdl_viewer._process_event(event)
+
+        popen.assert_called_once()
+        command = popen.call_args.args[0]
+        self.assertIs(popen.call_args.kwargs["stdin"], subprocess.DEVNULL)
+        self.assertIs(popen.call_args.kwargs["stdout"], subprocess.DEVNULL)
+        self.assertIs(popen.call_args.kwargs["stderr"], subprocess.DEVNULL)
+        self.assertTrue(popen.call_args.kwargs["close_fds"])
+        self.assertTrue(popen.call_args.kwargs["start_new_session"])
+        self.assertEqual(command[1:3], ["-m", "galapix_py.cli_view"])
+        self.assertIn("-d", command)
+        self.assertIn("/tmp/test-db", command)
+        self.assertIn("-g", command)
+        self.assertIn("800x600", command)
+        self.assertIn("--quit-key", command)
+        self.assertIn("--temp-cache", command)
+        self.assertIn("--background-color", command)
+        self.assertIn("#336699", command)
+        self.assertEqual(command[-1], "/tmp/sample.jpg")
+
+    def test_keydown_o_ignores_missing_selection(self) -> None:
+        class DummyWorkspace:
+            def filtered_selected_images(self):
+                return []
+
+            def selected_images(self):
+                return []
+
+        class DummyViewer:
+            def __init__(self) -> None:
+                self.workspace = DummyWorkspace()
+                self.options = ViewerOptions(database=Path("/tmp/test-db"))
+
+        viewer = DummyViewer()
+        sdl_viewer = SDLViewer(viewer)
+
+        with (
+            patch("galapix_py.sdl_viewer.sdl2.SDL_KEYDOWN", 1),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_o", 111),
+            patch("galapix_py.sdl_viewer.subprocess.Popen") as popen,
+        ):
+            event = type("Event", (), {})()
+            event.type = 1
+            event.key = type("Key", (), {"keysym": type("Keysym", (), {"sym": 111, "mod": 0})()})()
+            sdl_viewer._process_event(event)
+
+        popen.assert_not_called()
 
     def test_quit_key_matches_uppercase_only_with_shift(self) -> None:
         with patch("galapix_py.sdl_viewer.sdl2.KMOD_SHIFT", 1):

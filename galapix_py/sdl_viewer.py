@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.util
+import subprocess
+import sys
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 import sdl2
 
@@ -128,6 +131,69 @@ class SDLViewer:
         if self._ctrl_pressed():
             return 2.0
         return 1.0
+
+    def _selected_image_url(self) -> str | None:
+        workspace = getattr(self.viewer, "workspace", None)
+        if workspace is None:
+            return None
+        selected = workspace.filtered_selected_images()
+        if not selected:
+            selected = workspace.selected_images()
+        if not selected:
+            return None
+        return selected[0].url
+
+    def _current_background_color_arg(self) -> str | None:
+        colors = getattr(self.viewer, "background_colors", None)
+        index = getattr(self.viewer, "background_index", None)
+        if colors is None or index is None:
+            return None
+        try:
+            color = colors[index]
+        except (IndexError, TypeError):
+            return None
+        channels = [max(0, min(255, round(channel * 255))) for channel in color[:3]]
+        return "#" + "".join(f"{channel:02x}" for channel in channels)
+
+    def _open_selected_image_window(self) -> None:
+        url = self._selected_image_url()
+        if url is None:
+            return
+        options = self.viewer.options
+        command = [
+            sys.executable,
+            "-m",
+            "galapix_py.cli_view",
+            "-d",
+            str(options.database),
+            "-t",
+            str(options.threads),
+            "-g",
+            f"{options.width}x{options.height}",
+            "-r",
+            Path(url).name or options.title,
+            "--temp-cache",
+        ]
+        background_color = self._current_background_color_arg()
+        if background_color is not None:
+            command.extend(["--background-color", background_color])
+        if options.ignore_pattern_case:
+            command.append("--ignore-pattern-case")
+        if options.case_insensitive_sort:
+            command.append("--case-insensitive-sort")
+        if options.show_filenames:
+            command.append("--show-filenames")
+        if options.quit_key is not None:
+            command.extend(["--quit-key", options.quit_key])
+        command.append(url)
+        subprocess.Popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+            start_new_session=True,
+        )
 
     def run(self) -> None:
         configure_app_identity_hint()
@@ -329,6 +395,8 @@ class SDLViewer:
             elif sym == sdl2.SDLK_n:
                 self.viewer.zoom_to_original()
                 self.viewer.request_redraw()
+            elif sym == sdl2.SDLK_o:
+                self._open_selected_image_window()
             elif sym == sdl2.SDLK_b:
                 shift = bool(event.key.keysym.mod & sdl2.KMOD_SHIFT)
                 self.viewer.cycle_background(backwards=shift)
