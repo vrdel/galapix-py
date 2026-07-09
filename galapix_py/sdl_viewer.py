@@ -110,6 +110,7 @@ class SDLViewer:
         self._last_title: str | None = None
         self._suppress_opening_search_text = False
         self._current_sort = getattr(getattr(viewer, "options", None), "sort", None)
+        self._child_viewers: list[subprocess.Popen] = []
 
     def _ctrl_pressed(self) -> bool:
         mods = sdl2.SDL_GetModState()
@@ -207,7 +208,7 @@ class SDLViewer:
         if options.quit_key is not None:
             command.extend(["--quit-key", options.quit_key])
         command.extend(urls)
-        subprocess.Popen(
+        child = subprocess.Popen(
             command,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
@@ -215,6 +216,10 @@ class SDLViewer:
             close_fds=True,
             start_new_session=True,
         )
+        self._child_viewers.append(child)
+
+    def _reap_child_viewers(self) -> None:
+        self._child_viewers = [child for child in self._child_viewers if child.poll() is None]
 
     def run(self) -> None:
         configure_app_identity_hint()
@@ -273,8 +278,10 @@ class SDLViewer:
                     timeout_message = validator.timeout_message(now - started)
                     if timeout_message is not None:
                         raise RuntimeError(timeout_message)
+                self._reap_child_viewers()
                 sdl2.SDL_Delay(10)
         finally:
+            self._reap_child_viewers()
             sdl2.SDL_StopTextInput()
             sdl2.SDL_GL_DeleteContext(self.context)
             sdl2.SDL_DestroyWindow(self.window)

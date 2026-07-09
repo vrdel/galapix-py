@@ -1234,6 +1234,7 @@ class GalapixPyCoreTests(unittest.TestCase):
             sdl_viewer._process_event(event)
 
         popen.assert_called_once()
+        self.assertEqual(sdl_viewer._child_viewers, [popen.return_value])
         command = popen.call_args.args[0]
         self.assertIs(popen.call_args.kwargs["stdin"], subprocess.DEVNULL)
         self.assertIs(popen.call_args.kwargs["stdout"], subprocess.DEVNULL)
@@ -1263,6 +1264,30 @@ class GalapixPyCoreTests(unittest.TestCase):
         self.assertIn("--show-filenames", command)
         self.assertIn("--fullscreen", command)
         self.assertEqual(command[-2:], ["/tmp/sample-a.jpg", "/tmp/sample-b.jpg"])
+
+    def test_reap_child_viewers_removes_exited_processes(self) -> None:
+        class DummyViewer:
+            options = ViewerOptions(database=Path("/tmp/test-db"))
+
+        class Child:
+            def __init__(self, result: int | None) -> None:
+                self.result = result
+                self.polls = 0
+
+            def poll(self) -> int | None:
+                self.polls += 1
+                return self.result
+
+        running = Child(None)
+        exited = Child(0)
+        sdl_viewer = SDLViewer(DummyViewer())
+        sdl_viewer._child_viewers = [running, exited]
+
+        sdl_viewer._reap_child_viewers()
+
+        self.assertEqual(sdl_viewer._child_viewers, [running])
+        self.assertEqual(running.polls, 1)
+        self.assertEqual(exited.polls, 1)
 
     def test_keydown_o_ignores_missing_selection(self) -> None:
         class DummyWorkspace:
