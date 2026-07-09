@@ -170,7 +170,7 @@ class SDLViewer:
         if not urls:
             return
         options = self.viewer.options
-        title = Path(urls[0]).name if len(urls) == 1 else f"{len(urls)} selected images"
+        title = ", ".join(Path(url).name for url in urls)
         command = [
             sys.executable,
             "-m",

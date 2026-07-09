@@ -1245,6 +1245,8 @@ class GalapixPyCoreTests(unittest.TestCase):
         self.assertIn("/tmp/test-db", command)
         self.assertIn("-g", command)
         self.assertIn("800x600", command)
+        self.assertIn("-r", command)
+        self.assertIn("sample-a.jpg, sample-b.jpg", command)
         self.assertIn("--quit-key", command)
         self.assertIn("--temp-cache", command)
         self.assertIn("--background-color", command)
