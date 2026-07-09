@@ -660,9 +660,9 @@ class Viewer:
         glEnable(GL_TEXTURE_2D)
         glColor3f(1.0, 1.0, 1.0)
 
-    def select_at_screen(self, screen_x: float, screen_y: float) -> None:
+    def select_at_screen(self, screen_x: float, screen_y: float, toggle: bool = False) -> None:
         world_x, world_y = self.state.screen_to_world(screen_x, screen_y)
-        self.workspace.select_at(world_x, world_y)
+        self.workspace.select_at(world_x, world_y, toggle=toggle)
         self.request_redraw()
 
     def open_search(self) -> None:

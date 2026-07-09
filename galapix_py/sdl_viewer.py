@@ -109,6 +109,7 @@ class SDLViewer:
         self.mouse_down_pos: tuple[int, int] | None = None
         self._last_title: str | None = None
         self._suppress_opening_search_text = False
+        self._current_sort = getattr(getattr(viewer, "options", None), "sort", None)
 
     def _ctrl_pressed(self) -> bool:
         mods = sdl2.SDL_GetModState()
@@ -132,16 +133,14 @@ class SDLViewer:
             return 2.0
         return 1.0
 
-    def _selected_image_url(self) -> str | None:
+    def _selected_image_urls(self) -> list[str]:
         workspace = getattr(self.viewer, "workspace", None)
         if workspace is None:
-            return None
+            return []
         selected = workspace.filtered_selected_images()
         if not selected:
             selected = workspace.selected_images()
-        if not selected:
-            return None
-        return selected[0].url
+        return [image.url for image in selected]
 
     def _current_background_color_arg(self) -> str | None:
         colors = getattr(self.viewer, "background_colors", None)
@@ -155,11 +154,23 @@ class SDLViewer:
         channels = [max(0, min(255, round(channel * 255))) for channel in color[:3]]
         return "#" + "".join(f"{channel:02x}" for channel in channels)
 
+    def _current_selection_color_arg(self) -> str | None:
+        selection_outline_color = getattr(self.viewer, "selection_outline_color", None)
+        if callable(selection_outline_color):
+            color = selection_outline_color()
+        else:
+            color = getattr(getattr(self.viewer, "options", None), "selection_border_color", None)
+        if color is None:
+            return None
+        channels = [max(0, min(255, round(channel * 255))) for channel in color[:3]]
+        return "#" + "".join(f"{channel:02x}" for channel in channels)
+
     def _open_selected_image_window(self) -> None:
-        url = self._selected_image_url()
-        if url is None:
+        urls = self._selected_image_urls()
+        if not urls:
             return
         options = self.viewer.options
+        title = Path(urls[0]).name if len(urls) == 1 else f"{len(urls)} selected images"
         command = [
             sys.executable,
             "-m",
@@ -171,21 +182,31 @@ class SDLViewer:
             "-g",
             f"{options.width}x{options.height}",
             "-r",
-            Path(url).name or options.title,
+            title or options.title,
             "--temp-cache",
         ]
         background_color = self._current_background_color_arg()
         if background_color is not None:
             command.extend(["--background-color", background_color])
+        selection_color = self._current_selection_color_arg()
+        if selection_color is not None:
+            command.extend(["--selection-border-color", selection_color])
+        if self._current_sort is not None:
+            command.extend(["--sort", self._current_sort])
+        if options.images_per_row is not None:
+            command.extend(["--images-per-row", str(options.images_per_row)])
+        command.extend(["--spacing", str(max(1, options.spacing))])
         if options.ignore_pattern_case:
             command.append("--ignore-pattern-case")
         if options.case_insensitive_sort:
             command.append("--case-insensitive-sort")
         if options.show_filenames:
             command.append("--show-filenames")
+        if options.fullscreen:
+            command.append("--fullscreen")
         if options.quit_key is not None:
             command.extend(["--quit-key", options.quit_key])
-        command.append(url)
+        command.extend(urls)
         subprocess.Popen(
             command,
             stdin=subprocess.DEVNULL,
@@ -359,7 +380,7 @@ class SDLViewer:
                 dx = event.button.x - self.mouse_down_pos[0]
                 dy = event.button.y - self.mouse_down_pos[1]
                 if abs(dx) <= 3 and abs(dy) <= 3:
-                    self.viewer.select_at_screen(event.button.x, event.button.y)
+                    self.viewer.select_at_screen(event.button.x, event.button.y, toggle=self._ctrl_pressed())
                 self.mouse_down_pos = None
         elif event.type == sdl2.SDL_WINDOWEVENT and event.window.event == sdl2.SDL_WINDOWEVENT_SIZE_CHANGED:
             self.viewer.set_viewport(event.window.data1, event.window.data2)
@@ -408,6 +429,7 @@ class SDLViewer:
                 self.viewer.refresh_selection()
             elif sym == sdl2.SDLK_1:
                 shift = bool(event.key.keysym.mod & sdl2.KMOD_SHIFT)
+                self._current_sort = "name-reverse" if shift else "name"
                 self.viewer.workspace.sort_by_name(reverse=shift)
                 self.viewer.workspace.layout_row(
                     spacing=40.0 * max(1, self.viewer.options.spacing),
@@ -417,6 +439,7 @@ class SDLViewer:
                 self.viewer.request_redraw()
             elif sym == sdl2.SDLK_2:
                 shift = bool(event.key.keysym.mod & sdl2.KMOD_SHIFT)
+                self._current_sort = "mtime-reverse" if shift else "mtime"
                 self.viewer.workspace.sort_by_mtime(reverse=shift)
                 self.viewer.workspace.layout_row(
                     spacing=40.0 * max(1, self.viewer.options.spacing),
@@ -426,6 +449,7 @@ class SDLViewer:
                 self.viewer.request_redraw()
             elif sym == sdl2.SDLK_3:
                 shift = bool(event.key.keysym.mod & sdl2.KMOD_SHIFT)
+                self._current_sort = "url-reverse" if shift else "url"
                 self.viewer.workspace.sort_by_url(reverse=shift, case_insensitive=self.viewer.options.case_insensitive_sort)
                 self.viewer.workspace.layout_row(
                     spacing=40.0 * max(1, self.viewer.options.spacing),

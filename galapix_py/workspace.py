@@ -29,11 +29,12 @@ class Workspace:
                 return image
         return None
 
-    def select_at(self, x: float, y: float) -> Image | None:
+    def select_at(self, x: float, y: float, toggle: bool = False) -> Image | None:
         image = self.get_image_at(x, y)
-        self.clear_selection()
+        if not toggle:
+            self.clear_selection()
         if image is not None:
-            image.selected = True
+            image.selected = not image.selected if toggle else True
         return image
 
     def selected_images(self) -> list[Image]:

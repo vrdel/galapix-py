@@ -827,6 +827,25 @@ class GalapixPyCoreTests(unittest.TestCase):
         self.assertTrue(alpha.selected)
         self.assertFalse(bravo.selected)
 
+    def test_workspace_select_at_can_toggle_multiple_images(self) -> None:
+        workspace = Workspace()
+        alpha = Image("/tmp/alpha.jpg")
+        alpha.set_absolute(50.0, 50.0, 1.0)
+        bravo = Image("/tmp/bravo.jpg")
+        bravo.set_absolute(200.0, 50.0, 1.0)
+        workspace.add_image(alpha)
+        workspace.add_image(bravo)
+
+        workspace.select_at(50.0, 50.0, toggle=True)
+        workspace.select_at(200.0, 50.0, toggle=True)
+
+        self.assertEqual(workspace.selected_images(), [alpha, bravo])
+
+        workspace.select_at(50.0, 50.0, toggle=True)
+
+        self.assertFalse(alpha.selected)
+        self.assertTrue(bravo.selected)
+
     def test_workspace_layout_row_auto_wraps_nine_images_to_three_per_row(self) -> None:
         workspace = Workspace()
         for index in range(9):
@@ -1133,6 +1152,7 @@ class GalapixPyCoreTests(unittest.TestCase):
 
         self.assertEqual(calls, [("name", False), ("path", True)])
         self.assertTrue(viewer.redraw_requested)
+        self.assertEqual(sdl_viewer._current_sort, "url-reverse")
 
     def test_keydown_i_resets_view(self) -> None:
         calls: list[str] = []
@@ -1164,11 +1184,12 @@ class GalapixPyCoreTests(unittest.TestCase):
 
     def test_keydown_o_opens_selected_image_in_new_viewer(self) -> None:
         class DummyImage:
-            url = "/tmp/sample.jpg"
+            def __init__(self, url: str) -> None:
+                self.url = url
 
         class DummyWorkspace:
             def filtered_selected_images(self):
-                return [DummyImage()]
+                return [DummyImage("/tmp/sample-a.jpg"), DummyImage("/tmp/sample-b.jpg")]
 
             def selected_images(self):
                 return []
@@ -1182,6 +1203,12 @@ class GalapixPyCoreTests(unittest.TestCase):
                     width=800,
                     height=600,
                     title="main viewer",
+                    fullscreen=True,
+                    sort="mtime",
+                    images_per_row=3,
+                    spacing=2,
+                    case_insensitive_sort=True,
+                    show_filenames=True,
                     quit_key="Q",
                 )
                 self.background_colors = [
@@ -1189,6 +1216,9 @@ class GalapixPyCoreTests(unittest.TestCase):
                     (0.2, 0.4, 0.6, 1.0),
                 ]
                 self.background_index = 1
+
+            def selection_outline_color(self) -> tuple[float, float, float]:
+                return (0.7, 0.8, 0.9)
 
         viewer = DummyViewer()
         sdl_viewer = SDLViewer(viewer)
@@ -1219,7 +1249,18 @@ class GalapixPyCoreTests(unittest.TestCase):
         self.assertIn("--temp-cache", command)
         self.assertIn("--background-color", command)
         self.assertIn("#336699", command)
-        self.assertEqual(command[-1], "/tmp/sample.jpg")
+        self.assertIn("--selection-border-color", command)
+        self.assertIn("#b2cce6", command)
+        self.assertIn("--sort", command)
+        self.assertIn("mtime", command)
+        self.assertIn("--images-per-row", command)
+        self.assertIn("3", command)
+        self.assertIn("--spacing", command)
+        self.assertIn("2", command)
+        self.assertIn("--case-insensitive-sort", command)
+        self.assertIn("--show-filenames", command)
+        self.assertIn("--fullscreen", command)
+        self.assertEqual(command[-2:], ["/tmp/sample-a.jpg", "/tmp/sample-b.jpg"])
 
     def test_keydown_o_ignores_missing_selection(self) -> None:
         class DummyWorkspace:
@@ -1456,6 +1497,35 @@ class GalapixPyCoreTests(unittest.TestCase):
         self.assertEqual(state.scale, state.target_scale)
         self.assertEqual(state.offset_x, state.target_offset_x)
         self.assertEqual(state.offset_y, state.target_offset_y)
+
+    def test_ctrl_left_click_toggles_selection(self) -> None:
+        calls: list[tuple[int, int, bool]] = []
+
+        class DummyViewer:
+            search_active = False
+
+            def select_at_screen(self, x: int, y: int, toggle: bool = False) -> None:
+                calls.append((x, y, toggle))
+
+        viewer = DummyViewer()
+        sdl_viewer = SDLViewer(viewer)
+        down = type("Event", (), {})()
+        down.type = 1
+        down.button = type("Button", (), {"button": 1, "x": 40, "y": 50})()
+        up = type("Event", (), {})()
+        up.type = 2
+        up.button = type("Button", (), {"button": 1, "x": 41, "y": 51})()
+
+        with (
+            patch("galapix_py.sdl_viewer.sdl2.SDL_MOUSEBUTTONDOWN", 1),
+            patch("galapix_py.sdl_viewer.sdl2.SDL_MOUSEBUTTONUP", 2),
+            patch("galapix_py.sdl_viewer.sdl2.SDL_BUTTON_LEFT", 1),
+            patch.object(SDLViewer, "_ctrl_pressed", return_value=True),
+        ):
+            sdl_viewer._process_event(down)
+            sdl_viewer._process_event(up)
+
+        self.assertEqual(calls, [(41, 51, True)])
 
     def test_mouse_wheel_zoom_uses_larger_step_with_ctrl(self) -> None:
         zoom_calls: list[tuple[float, int, int]] = []
