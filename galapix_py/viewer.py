@@ -393,6 +393,8 @@ class Viewer:
             self._draw_image(image, stats)
         if self.search_active:
             self._draw_search_overlay()
+        elif self.workspace.has_active_search():
+            self._draw_search_filter_badge()
         self.texture_cache.end_frame()
         self.needs_redraw = False
         self.last_frame_stats = stats
@@ -443,8 +445,11 @@ class Viewer:
             f"textures={textures}"
         ]
         if self.workspace.has_active_search():
-            parts.append(f' filtered={len(filtered)} search="{self.search_query}"')
+            parts.append(f" {self.search_filter_text()}")
         return "".join(parts)
+
+    def search_filter_text(self) -> str:
+        return f'filtered={len(self.workspace.filtered_images())} search="{self.search_query}"'
 
     def clear_all_caches(self) -> None:
         for image in self.workspace.images:
@@ -618,6 +623,23 @@ class Viewer:
             glDeleteTextures([min_title_width.texture_id])
             glDeleteTextures([min_query_width.texture_id])
             glDeleteTextures([min_query_height.texture_id])
+
+    def _draw_search_filter_badge(self) -> None:
+        label = self._create_text_texture(self.search_filter_text(), padding_x=0, padding_y=0, font_size=LABEL_FONT_SIZE)
+        pad_x = 10.0
+        pad_y = 7.0
+        margin = 14.0
+        width = label.width + pad_x * 2.0
+        height = label.height + pad_y * 2.0
+        right = self.viewport_width - margin
+        bottom = self.viewport_height - margin
+        left = max(margin, right - width)
+        top = max(margin, bottom - height)
+        try:
+            self._draw_solid_rect(left, top, right, bottom, self.search_panel_color())
+            self._draw_text_label(label, left + pad_x, top + pad_y)
+        finally:
+            glDeleteTextures([label.texture_id])
 
     def _draw_text_label(self, label: LabelTexture, left: float, top: float) -> None:
         glColor4f(1.0, 1.0, 1.0, 1.0)

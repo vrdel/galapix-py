@@ -22,6 +22,7 @@ from galapix_py import tiling
 from galapix_py.tiling import generate_tiles_for_entry, probe_file_entry
 from galapix_py.viewer import (
     FrameRenderStats,
+    LabelTexture,
     Viewer,
     GL_CLAMP_TO_EDGE,
     GL_LINEAR,
@@ -2079,6 +2080,29 @@ class GalapixPyCoreTests(unittest.TestCase):
 
         self.assertIn('filtered=1', text)
         self.assertIn('search="cat"', text)
+        self.assertEqual(viewer.search_filter_text(), 'filtered=1 search="cat"')
+
+    def test_viewer_search_filter_badge_draws_in_bottom_right(self) -> None:
+        workspace = Workspace()
+        workspace.add_image(Image("/tmp/alpha.jpg"))
+        workspace.add_image(Image("/tmp/bravo-cat.jpg"))
+        options = ViewerOptions(database=Path("/tmp/db"), background_color=(0.2, 0.3, 0.4, 1.0), width=400, height=300)
+        viewer = Viewer(options, workspace, None)
+        viewer.set_search_query("cat")
+        label = LabelTexture(texture_id=99, width=120, height=20)
+
+        with (
+            patch.object(viewer, "_create_text_texture", return_value=label) as create_text,
+            patch.object(viewer, "_draw_solid_rect") as draw_rect,
+            patch.object(viewer, "_draw_text_label") as draw_label,
+            patch("galapix_py.viewer.glDeleteTextures") as delete_textures,
+        ):
+            viewer._draw_search_filter_badge()
+
+        create_text.assert_called_once_with('filtered=1 search="cat"', padding_x=0, padding_y=0, font_size=14)
+        draw_rect.assert_called_once_with(246.0, 252.0, 386.0, 286.0, viewer.search_panel_color())
+        draw_label.assert_called_once_with(label, 256.0, 259.0)
+        delete_textures.assert_called_once_with([99])
 
     def test_overlay_label_text_uses_basename_and_truncates(self) -> None:
         self.assertEqual(overlay_label_text("/tmp/example.jpg"), "example.jpg")
