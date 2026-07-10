@@ -299,6 +299,8 @@ class Viewer:
         self.search_active = False
         self.search_query = ""
         self.search_saved_layout: dict[str, SavedPlacement] = {}
+        self.keyboard_selection_active = False
+        self.keyboard_selection_index = 0
 
     def world_to_screen(self, x: float, y: float) -> tuple[float, float]:
         return (
@@ -395,6 +397,8 @@ class Viewer:
             self._draw_search_overlay()
         elif self.workspace.has_active_search():
             self._draw_search_filter_badge()
+        if self.keyboard_selection_active:
+            self._draw_keyboard_selection_badge()
         self.texture_cache.end_frame()
         self.needs_redraw = False
         self.last_frame_stats = stats
@@ -410,6 +414,9 @@ class Viewer:
             self.background_colors[self.background_index],
             levels=4,
         )
+
+    def keyboard_selection_outline_color(self) -> tuple[float, float, float]:
+        return shade_rgb(self.selection_outline_color() + (1.0,), 0.55, floor=0.0)
 
     def search_panel_color(self) -> tuple[float, float, float]:
         return brighten_rgb(
@@ -480,6 +487,116 @@ class Viewer:
         if self.workspace.has_active_search():
             print(f'  search: "{self.search_query}"')
             print(f"  filtered: {len(self.workspace.filtered_images())}")
+
+    def toggle_keyboard_selection_mode(self) -> None:
+        if self.keyboard_selection_active:
+            self.keyboard_selection_active = False
+            self.keyboard_selection_index = 0
+            self.workspace.clear_selection()
+            self.request_redraw()
+            return
+        images = self.workspace.filtered_images()
+        if not images:
+            return
+        selected = self.workspace.filtered_selected_images()
+        self.keyboard_selection_index = images.index(selected[0]) if selected else 0
+        self.keyboard_selection_active = True
+        self.request_redraw()
+
+    def keyboard_selection_image(self) -> Image | None:
+        if not self.keyboard_selection_active:
+            return None
+        images = self.workspace.filtered_images()
+        if not images:
+            return None
+        self.keyboard_selection_index = max(0, min(self.keyboard_selection_index, len(images) - 1))
+        return images[self.keyboard_selection_index]
+
+    def _keyboard_selection_rows(self, images: list[Image]) -> list[list[int]]:
+        rows: list[tuple[float, float, list[int]]] = []
+        for index in sorted(range(len(images)), key=lambda i: (images[i].rect()[1], images[i].placement.x)):
+            _, top, _, bottom = images[index].rect()
+            for row_index, (row_top, row_bottom, row_indices) in enumerate(rows):
+                if not (bottom < row_top or top > row_bottom):
+                    row_indices.append(index)
+                    rows[row_index] = (min(row_top, top), max(row_bottom, bottom), row_indices)
+                    break
+            else:
+                rows.append((top, bottom, [index]))
+        return [
+            sorted(row_indices, key=lambda i: (images[i].rect()[0], images[i].placement.x))
+            for _, _, row_indices in rows
+        ]
+
+    def _move_keyboard_selection_horizontally(self, dx: int, images: list[Image]) -> bool:
+        rows = self._keyboard_selection_rows(images)
+        for row_number, row in enumerate(rows):
+            if self.keyboard_selection_index not in row:
+                continue
+            position = row.index(self.keyboard_selection_index)
+            if dx > 0:
+                if position + 1 < len(row):
+                    self.keyboard_selection_index = row[position + 1]
+                    return True
+                if row_number + 1 < len(rows) and rows[row_number + 1]:
+                    self.keyboard_selection_index = rows[row_number + 1][0]
+                    return True
+                return False
+            if position > 0:
+                self.keyboard_selection_index = row[position - 1]
+                return True
+            if row_number > 0 and rows[row_number - 1]:
+                self.keyboard_selection_index = rows[row_number - 1][-1]
+                return True
+            return False
+        return False
+
+    def move_keyboard_selection(self, dx: int, dy: int) -> None:
+        images = self.workspace.filtered_images()
+        if not self.keyboard_selection_active or not images:
+            return
+        self.keyboard_selection_index = max(0, min(self.keyboard_selection_index, len(images) - 1))
+        if dx and self._move_keyboard_selection_horizontally(dx, images):
+            self.request_redraw()
+            return
+        if dx:
+            return
+        current = images[self.keyboard_selection_index]
+        current_x, current_y = current.placement.x, current.placement.y
+        current_left, current_top, current_right, current_bottom = current.rect()
+        candidates: list[tuple[int, float, float, int]] = []
+        for index, image in enumerate(images):
+            if index == self.keyboard_selection_index:
+                continue
+            delta_x = image.placement.x - current_x
+            delta_y = image.placement.y - current_y
+            if dx < 0 and delta_x >= -1e-6:
+                continue
+            if dx > 0 and delta_x <= 1e-6:
+                continue
+            if dy < 0 and delta_y >= -1e-6:
+                continue
+            if dy > 0 and delta_y <= 1e-6:
+                continue
+            left, top, right, bottom = image.rect()
+            if dx:
+                same_line = not (bottom < current_top or top > current_bottom)
+            else:
+                same_line = not (right < current_left or left > current_right)
+            primary = abs(delta_x) if dx else abs(delta_y)
+            secondary = abs(delta_y) if dx else abs(delta_x)
+            candidates.append((0 if same_line else 1, primary, secondary, index))
+        if not candidates:
+            return
+        _, _, _, self.keyboard_selection_index = min(candidates)
+        self.request_redraw()
+
+    def toggle_keyboard_selection_image(self) -> None:
+        image = self.keyboard_selection_image()
+        if image is None:
+            return
+        image.selected = not image.selected
+        self.request_redraw()
 
     def _get_label_texture(self, text: str) -> LabelTexture:
         label = self.label_textures.get(text)
@@ -556,6 +673,25 @@ class Viewer:
         glEnd()
         glEnable(GL_TEXTURE_2D)
         glColor3f(1.0, 1.0, 1.0)
+
+    def _draw_tinted_rect(
+        self,
+        left: float,
+        top: float,
+        right: float,
+        bottom: float,
+        color: tuple[float, float, float, float],
+    ) -> None:
+        glDisable(GL_TEXTURE_2D)
+        glColor4f(*color)
+        glBegin(GL_QUADS)
+        glVertex2f(left, top)
+        glVertex2f(right, top)
+        glVertex2f(right, bottom)
+        glVertex2f(left, bottom)
+        glEnd()
+        glEnable(GL_TEXTURE_2D)
+        glColor4f(1.0, 1.0, 1.0, 1.0)
 
     def _draw_filename_overlay(self, image: Image) -> None:
         left, top, right, _ = image.rect()
@@ -635,6 +771,22 @@ class Viewer:
         bottom = self.viewport_height - margin
         left = max(margin, right - width)
         top = max(margin, bottom - height)
+        try:
+            self._draw_solid_rect(left, top, right, bottom, self.search_panel_color())
+            self._draw_text_label(label, left + pad_x, top + pad_y)
+        finally:
+            glDeleteTextures([label.texture_id])
+
+    def _draw_keyboard_selection_badge(self) -> None:
+        selected_count = len(self.workspace.filtered_selected_images())
+        label = self._create_text_texture(f"Select mode selected={selected_count}", padding_x=0, padding_y=0, font_size=LABEL_FONT_SIZE)
+        pad_x = 10.0
+        pad_y = 7.0
+        margin = 14.0
+        left = margin
+        bottom = self.viewport_height - margin
+        top = max(margin, bottom - label.height - pad_y * 2.0)
+        right = left + label.width + pad_x * 2.0
         try:
             self._draw_solid_rect(left, top, right, bottom, self.search_panel_color())
             self._draw_text_label(label, left + pad_x, top + pad_y)
@@ -778,7 +930,11 @@ class Viewer:
             self._draw_solid_rect(left, top, right, bottom, (0.55, 0.45, 0.10))
             stats.placeholder_tiles += 1
             if image.selected:
+                self._draw_tinted_rect(left, top, right, bottom, (0.0, 1.0, 0.0, 0.22))
                 self._draw_outline(left, top, right, bottom, self.selection_outline_color())
+            if image is self.keyboard_selection_image():
+                self._draw_tinted_rect(left, top, right, bottom, (1.0, 0.85, 0.0, 0.24))
+                self._draw_outline(left, top, right, bottom, self.keyboard_selection_outline_color())
             if not image.file_entry_requested:
                 image.file_entry_requested = True
 
@@ -892,6 +1048,12 @@ class Viewer:
         if image.selected:
             left, top = self.world_to_screen(img_left, img_top)
             right, bottom = self.world_to_screen(img_right, img_bottom)
+            self._draw_tinted_rect(left, top, right, bottom, (0.0, 1.0, 0.0, 0.22))
             self._draw_outline(left, top, right, bottom, self.selection_outline_color())
+        if image is self.keyboard_selection_image():
+            left, top = self.world_to_screen(img_left, img_top)
+            right, bottom = self.world_to_screen(img_right, img_bottom)
+            self._draw_tinted_rect(left, top, right, bottom, (1.0, 0.85, 0.0, 0.24))
+            self._draw_outline(left, top, right, bottom, self.keyboard_selection_outline_color())
         if self.options.show_filenames:
             self._draw_filename_overlay(image)

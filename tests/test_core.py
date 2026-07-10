@@ -1790,6 +1790,59 @@ class GalapixPyCoreTests(unittest.TestCase):
         self.assertEqual(zoom_calls, [(1.3, 200.0, 150.0)])
         self.assertTrue(viewer.redraw_requested)
 
+    def test_keyboard_zoom_still_works_during_keyboard_selection_mode(self) -> None:
+        zoom_calls: list[tuple[float, float, float]] = []
+        move_calls: list[tuple[float, float]] = []
+
+        class DummyState:
+            def move(self, x: float, y: float) -> None:
+                move_calls.append((x, y))
+
+            def zoom(self, factor: float, x: float, y: float) -> None:
+                zoom_calls.append((factor, x, y))
+
+        class DummyViewer:
+            def __init__(self) -> None:
+                self.state = DummyState()
+                self.viewport_width = 400
+                self.viewport_height = 300
+                self.redraw_requested = False
+                self.keyboard_selection_active = True
+
+            def request_redraw(self) -> None:
+                self.redraw_requested = True
+
+        viewer = DummyViewer()
+        sdl_viewer = SDLViewer(viewer)
+
+        class FakeKeyState:
+            def __getitem__(self, scancode: int) -> int:
+                return 1 if scancode in {1, 2} else 0
+
+        with (
+            patch("galapix_py.sdl_viewer.sdl2.SDL_GetKeyboardState", return_value=FakeKeyState()),
+            patch("galapix_py.sdl_viewer.sdl2.SDL_GetScancodeFromKey", side_effect=lambda key: {119: 1, 275: 2}.get(key, 0)),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_w", 119),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_s", 115),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_LEFT", 276),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_RIGHT", 275),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_UP", 273),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_DOWN", 274),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_h", 104),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_j", 106),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_k", 107),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_l", 108),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_LALT", 308),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_RALT", 307),
+            patch.object(SDLViewer, "_shift_pressed", return_value=False),
+            patch.object(SDLViewer, "_ctrl_pressed", return_value=False),
+        ):
+            sdl_viewer._process_keyboard_state()
+
+        self.assertEqual(zoom_calls, [(1.05, 200.0, 150.0)])
+        self.assertEqual(move_calls, [])
+        self.assertTrue(viewer.redraw_requested)
+
     def test_keyboard_pan_uses_largest_step_with_shift(self) -> None:
         move_calls: list[tuple[float, float]] = []
 
@@ -2015,6 +2068,110 @@ class GalapixPyCoreTests(unittest.TestCase):
         self.assertEqual(actions, ["backspace", "close:False", "close:True"])
         self.assertEqual(stop_text_input.call_count, 2)
 
+    def test_keyboard_selection_mode_keydown_routes_arrows_enter_and_open(self) -> None:
+        actions: list[tuple[str, object]] = []
+
+        class DummyViewer:
+            def __init__(self) -> None:
+                self.search_active = False
+                self.keyboard_selection_active = False
+                self.options = ViewerOptions(database=Path("/tmp/db"))
+
+            def toggle_keyboard_selection_mode(self) -> None:
+                actions.append(("mode", None))
+                self.keyboard_selection_active = not self.keyboard_selection_active
+
+            def move_keyboard_selection(self, dx: int, dy: int) -> None:
+                actions.append(("move", (dx, dy)))
+
+            def toggle_keyboard_selection_image(self) -> None:
+                actions.append(("toggle", None))
+
+        viewer = DummyViewer()
+        sdl_viewer = SDLViewer(viewer)
+
+        with (
+            patch("galapix_py.sdl_viewer.sdl2.SDL_KEYDOWN", 1),
+            patch("galapix_py.sdl_viewer.sdl2.KMOD_CTRL", 64),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_e", 101),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_RIGHT", 275),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_h", 104),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_j", 106),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_k", 107),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_l", 108),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_RETURN", 13),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_o", 111),
+            patch.object(sdl_viewer, "_open_selected_image_window") as open_selected,
+        ):
+            for sym, mod in ((101, 64), (275, 0), (104, 0), (106, 0), (107, 0), (108, 0), (13, 0), (111, 0), (101, 64)):
+                event = type("Event", (), {})()
+                event.type = 1
+                event.key = type("Key", (), {"keysym": type("Keysym", (), {"sym": sym, "mod": mod})()})()
+                sdl_viewer._process_event(event)
+
+        self.assertEqual(
+            actions,
+            [
+                ("mode", None),
+                ("move", (1, 0)),
+                ("move", (-1, 0)),
+                ("move", (0, 1)),
+                ("move", (0, -1)),
+                ("move", (1, 0)),
+                ("toggle", None),
+                ("mode", None),
+            ],
+        )
+        open_selected.assert_called_once_with()
+
+    def test_keyboard_selection_mode_shift_arrows_and_hjkl_pan(self) -> None:
+        actions: list[tuple[str, object]] = []
+
+        class DummyState:
+            def move(self, x: float, y: float) -> None:
+                actions.append(("pan", (x, y)))
+
+        class DummyViewer:
+            def __init__(self) -> None:
+                self.search_active = False
+                self.keyboard_selection_active = True
+                self.options = ViewerOptions(database=Path("/tmp/db"))
+                self.state = DummyState()
+
+            def move_keyboard_selection(self, dx: int, dy: int) -> None:
+                actions.append(("move", (dx, dy)))
+
+            def request_redraw(self) -> None:
+                actions.append(("redraw", None))
+
+        viewer = DummyViewer()
+        sdl_viewer = SDLViewer(viewer)
+
+        with (
+            patch("galapix_py.sdl_viewer.sdl2.SDL_KEYDOWN", 1),
+            patch("galapix_py.sdl_viewer.sdl2.KMOD_CTRL", 64),
+            patch("galapix_py.sdl_viewer.sdl2.KMOD_SHIFT", 1),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_e", 101),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_RIGHT", 275),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_h", 104),
+        ):
+            for sym, mod in ((275, 1), (104, 1), (275, 0)):
+                event = type("Event", (), {})()
+                event.type = 1
+                event.key = type("Key", (), {"keysym": type("Keysym", (), {"sym": sym, "mod": mod})()})()
+                sdl_viewer._process_event(event)
+
+        self.assertEqual(
+            actions,
+            [
+                ("pan", (-48.0, 0.0)),
+                ("redraw", None),
+                ("pan", (48.0, 0.0)),
+                ("redraw", None),
+                ("move", (1, 0)),
+            ],
+        )
+
     def test_configure_texture_upload_state_sets_alignment_and_clamp(self) -> None:
         with (
             patch("galapix_py.viewer.glPixelStorei") as pixel_store,
@@ -2057,6 +2214,138 @@ class GalapixPyCoreTests(unittest.TestCase):
         )
         viewer = Viewer(options, Workspace(), None)
         self.assertEqual(viewer.selection_outline_color(), (0.7, 0.8, 0.9))
+
+    def test_viewer_keyboard_selection_mode_moves_selects_and_clears_on_exit(self) -> None:
+        workspace = Workspace()
+        alpha = Image("/tmp/alpha.jpg")
+        alpha.set_absolute(0.0, 0.0, 1.0)
+        bravo = Image("/tmp/bravo.jpg")
+        bravo.set_absolute(300.0, 0.0, 1.0)
+        charlie = Image("/tmp/charlie.jpg")
+        charlie.set_absolute(300.0, 300.0, 1.0)
+        workspace.add_image(alpha)
+        workspace.add_image(bravo)
+        workspace.add_image(charlie)
+        viewer = Viewer(ViewerOptions(database=Path("/tmp/db")), workspace, None)
+
+        viewer.toggle_keyboard_selection_mode()
+        self.assertIs(viewer.keyboard_selection_image(), alpha)
+
+        viewer.move_keyboard_selection(1, 0)
+        self.assertIs(viewer.keyboard_selection_image(), bravo)
+        viewer.toggle_keyboard_selection_image()
+        viewer.move_keyboard_selection(0, 1)
+        self.assertIs(viewer.keyboard_selection_image(), charlie)
+        viewer.toggle_keyboard_selection_image()
+
+        self.assertEqual(workspace.selected_images(), [bravo, charlie])
+
+        viewer.toggle_keyboard_selection_mode()
+
+        self.assertFalse(viewer.keyboard_selection_active)
+        self.assertEqual(workspace.selected_images(), [])
+
+    def test_keyboard_selection_horizontal_move_prefers_same_visual_row(self) -> None:
+        workspace = Workspace()
+        alpha = Image("/tmp/alpha.jpg")
+        alpha.set_absolute(0.0, 0.0, 1.0)
+        lower = Image("/tmp/lower.jpg")
+        lower.set_absolute(100.0, 300.0, 1.0)
+        bravo = Image("/tmp/bravo.jpg")
+        bravo.set_absolute(400.0, 0.0, 1.0)
+        workspace.add_image(alpha)
+        workspace.add_image(lower)
+        workspace.add_image(bravo)
+        viewer = Viewer(ViewerOptions(database=Path("/tmp/db")), workspace, None)
+
+        viewer.toggle_keyboard_selection_mode()
+        viewer.move_keyboard_selection(1, 0)
+
+        self.assertIs(viewer.keyboard_selection_image(), bravo)
+
+    def test_keyboard_selection_horizontal_move_wraps_between_visual_rows(self) -> None:
+        workspace = Workspace()
+        first = Image("/tmp/first.jpg")
+        first.set_absolute(0.0, 0.0, 1.0)
+        second = Image("/tmp/second.jpg")
+        second.set_absolute(300.0, 0.0, 1.0)
+        third = Image("/tmp/third.jpg")
+        third.set_absolute(0.0, 300.0, 1.0)
+        fourth = Image("/tmp/fourth.jpg")
+        fourth.set_absolute(300.0, 300.0, 1.0)
+        workspace.add_image(first)
+        workspace.add_image(second)
+        workspace.add_image(third)
+        workspace.add_image(fourth)
+        viewer = Viewer(ViewerOptions(database=Path("/tmp/db")), workspace, None)
+
+        viewer.toggle_keyboard_selection_mode()
+        viewer.move_keyboard_selection(1, 0)
+        self.assertIs(viewer.keyboard_selection_image(), second)
+        viewer.move_keyboard_selection(1, 0)
+        self.assertIs(viewer.keyboard_selection_image(), third)
+        viewer.move_keyboard_selection(-1, 0)
+        self.assertIs(viewer.keyboard_selection_image(), second)
+
+    def test_viewer_keyboard_selection_badge_draws_in_bottom_left(self) -> None:
+        workspace = Workspace()
+        alpha = Image("/tmp/alpha.jpg")
+        alpha.selected = True
+        workspace.add_image(alpha)
+        options = ViewerOptions(database=Path("/tmp/db"), background_color=(0.2, 0.3, 0.4, 1.0), width=400, height=300)
+        viewer = Viewer(options, workspace, None)
+        label = LabelTexture(texture_id=98, width=150, height=20)
+
+        with (
+            patch.object(viewer, "_create_text_texture", return_value=label) as create_text,
+            patch.object(viewer, "_draw_solid_rect") as draw_rect,
+            patch.object(viewer, "_draw_text_label") as draw_label,
+            patch("galapix_py.viewer.glDeleteTextures") as delete_textures,
+        ):
+            viewer._draw_keyboard_selection_badge()
+
+        create_text.assert_called_once_with("Select mode selected=1", padding_x=0, padding_y=0, font_size=14)
+        draw_rect.assert_called_once_with(14.0, 252.0, 184.0, 286.0, viewer.search_panel_color())
+        draw_label.assert_called_once_with(label, 24.0, 259.0)
+        delete_textures.assert_called_once_with([98])
+
+    def test_selected_placeholder_image_draws_green_tint(self) -> None:
+        image = Image("/tmp/alpha.jpg")
+        image.selected = True
+        image.file_entry_requested = True
+        image.set_absolute(128.0, 128.0, 1.0)
+        workspace = Workspace()
+        workspace.add_image(image)
+        viewer = Viewer(ViewerOptions(database=Path("/tmp/db")), workspace, None)
+
+        with (
+            patch.object(viewer, "world_to_screen", side_effect=lambda x, y: (x, y)),
+            patch.object(viewer, "_draw_solid_rect"),
+            patch.object(viewer, "_draw_tinted_rect") as draw_tint,
+            patch.object(viewer, "_draw_outline"),
+        ):
+            viewer._draw_image(image, FrameRenderStats())
+
+        draw_tint.assert_called_once_with(0.0, 0.0, 256.0, 256.0, (0.0, 1.0, 0.0, 0.22))
+
+    def test_keyboard_focused_placeholder_image_draws_yellow_tint(self) -> None:
+        image = Image("/tmp/alpha.jpg")
+        image.file_entry_requested = True
+        image.set_absolute(128.0, 128.0, 1.0)
+        workspace = Workspace()
+        workspace.add_image(image)
+        viewer = Viewer(ViewerOptions(database=Path("/tmp/db")), workspace, None)
+        viewer.toggle_keyboard_selection_mode()
+
+        with (
+            patch.object(viewer, "world_to_screen", side_effect=lambda x, y: (x, y)),
+            patch.object(viewer, "_draw_solid_rect"),
+            patch.object(viewer, "_draw_tinted_rect") as draw_tint,
+            patch.object(viewer, "_draw_outline"),
+        ):
+            viewer._draw_image(image, FrameRenderStats())
+
+        draw_tint.assert_called_once_with(0.0, 0.0, 256.0, 256.0, (1.0, 0.85, 0.0, 0.24))
 
     def test_viewer_search_overlay_colors_track_background(self) -> None:
         options = ViewerOptions(database=Path("/tmp/db"), background_color=(0.2, 0.3, 0.4, 1.0))

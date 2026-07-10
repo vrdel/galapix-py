@@ -305,30 +305,31 @@ class SDLViewer:
 
         pan_step = 48.0 if shift else (32.0 if ctrl else 16.0)
         zoom_factor = 1.3 if shift else (1.15 if ctrl else 1.05)
+        keyboard_selection_active = getattr(self.viewer, "keyboard_selection_active", False)
         moved = False
 
-        if pressed(sdl2.SDLK_LEFT):
+        if not keyboard_selection_active and pressed(sdl2.SDLK_LEFT):
             self.viewer.state.move(+pan_step, 0.0)
             moved = True
-        if pressed(sdl2.SDLK_RIGHT):
+        if not keyboard_selection_active and pressed(sdl2.SDLK_RIGHT):
             self.viewer.state.move(-pan_step, 0.0)
             moved = True
-        if pressed(sdl2.SDLK_UP):
+        if not keyboard_selection_active and pressed(sdl2.SDLK_UP):
             self.viewer.state.move(0.0, +pan_step)
             moved = True
-        if pressed(sdl2.SDLK_DOWN):
+        if not keyboard_selection_active and pressed(sdl2.SDLK_DOWN):
             self.viewer.state.move(0.0, -pan_step)
             moved = True
-        if pressed(sdl2.SDLK_h):
+        if not keyboard_selection_active and pressed(sdl2.SDLK_h):
             self.viewer.state.move(+pan_step, 0.0)
             moved = True
-        if pressed(sdl2.SDLK_l):
+        if not keyboard_selection_active and pressed(sdl2.SDLK_l):
             self.viewer.state.move(-pan_step, 0.0)
             moved = True
-        if pressed(sdl2.SDLK_k):
+        if not keyboard_selection_active and pressed(sdl2.SDLK_k):
             self.viewer.state.move(0.0, +pan_step)
             moved = True
-        if pressed(sdl2.SDLK_j):
+        if not keyboard_selection_active and pressed(sdl2.SDLK_j):
             self.viewer.state.move(0.0, -pan_step)
             moved = True
         if pressed(sdl2.SDLK_w):
@@ -340,6 +341,20 @@ class SDLViewer:
 
         if moved:
             self.viewer.request_redraw()
+
+    def _pan_by_keyboard_shortcut(self, sym: int, step: float = 48.0) -> bool:
+        if sym in {sdl2.SDLK_LEFT, sdl2.SDLK_h}:
+            self.viewer.state.move(+step, 0.0)
+        elif sym in {sdl2.SDLK_RIGHT, sdl2.SDLK_l}:
+            self.viewer.state.move(-step, 0.0)
+        elif sym in {sdl2.SDLK_UP, sdl2.SDLK_k}:
+            self.viewer.state.move(0.0, +step)
+        elif sym in {sdl2.SDLK_DOWN, sdl2.SDLK_j}:
+            self.viewer.state.move(0.0, -step)
+        else:
+            return False
+        self.viewer.request_redraw()
+        return True
 
     def _process_event(self, event: sdl2.SDL_Event) -> None:
         if event.type == sdl2.SDL_QUIT:
@@ -408,7 +423,26 @@ class SDLViewer:
                     self.viewer.backspace_search()
                 return
             quit_key = getattr(getattr(self.viewer, "options", None), "quit_key", None)
-            if (quit_key is None and sym == sdl2.SDLK_ESCAPE) or quit_key_matches(quit_key, sym, modifiers):
+            ctrl = bool(modifiers & sdl2.KMOD_CTRL)
+            shift = bool(modifiers & sdl2.KMOD_SHIFT)
+            if ctrl and sym == sdl2.SDLK_e:
+                self.viewer.toggle_keyboard_selection_mode()
+            elif getattr(self.viewer, "keyboard_selection_active", False):
+                if shift and self._pan_by_keyboard_shortcut(sym):
+                    pass
+                elif sym in {sdl2.SDLK_LEFT, sdl2.SDLK_h}:
+                    self.viewer.move_keyboard_selection(-1, 0)
+                elif sym in {sdl2.SDLK_RIGHT, sdl2.SDLK_l}:
+                    self.viewer.move_keyboard_selection(1, 0)
+                elif sym in {sdl2.SDLK_UP, sdl2.SDLK_k}:
+                    self.viewer.move_keyboard_selection(0, -1)
+                elif sym in {sdl2.SDLK_DOWN, sdl2.SDLK_j}:
+                    self.viewer.move_keyboard_selection(0, 1)
+                elif sym == sdl2.SDLK_RETURN:
+                    self.viewer.toggle_keyboard_selection_image()
+                elif sym == sdl2.SDLK_o:
+                    self._open_selected_image_window()
+            elif (quit_key is None and sym == sdl2.SDLK_ESCAPE) or quit_key_matches(quit_key, sym, modifiers):
                 self.running = False
             elif sym == sdl2.SDLK_SLASH:
                 self.viewer.open_search()
