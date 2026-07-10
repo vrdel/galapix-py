@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import io
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -105,6 +106,70 @@ class GalapixPyCoreTests(unittest.TestCase):
                 self.assertEqual(len(listed), 1)
                 tile = database.get_tile(entry.file_id, entry.thumbnail_scale, 0, 0)
                 self.assertIsNotNone(tile)
+            finally:
+                database.close()
+
+    def test_database_reads_legacy_cpp_cache_schema_from_sqlite_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            image_path = make_test_jpeg(base, width=300, height=260)
+            stat = image_path.stat()
+            cache_path = base / "cache3.sqlite3"
+            conn = sqlite3.connect(cache_path)
+            try:
+                conn.executescript(
+                    """
+                    CREATE TABLE files (
+                      fileid INTEGER PRIMARY KEY AUTOINCREMENT,
+                      url TEXT NOT NULL UNIQUE,
+                      size INTEGER NOT NULL,
+                      mtime INTEGER NOT NULL,
+                      width INTEGER NOT NULL,
+                      height INTEGER NOT NULL,
+                      format TEXT NOT NULL
+                    );
+                    CREATE TABLE tiles (
+                      fileid INTEGER NOT NULL,
+                      scale INTEGER NOT NULL,
+                      x INTEGER NOT NULL,
+                      y INTEGER NOT NULL,
+                      data BLOB NOT NULL,
+                      quality INTEGER,
+                      format TEXT
+                    );
+                    """
+                )
+                conn.execute(
+                    "INSERT INTO files(url, size, mtime, width, height, format) VALUES(?, ?, ?, ?, ?, ?)",
+                    (image_path.resolve().as_uri(), stat.st_size, int(stat.st_mtime), 300, 260, "jpeg"),
+                )
+                conn.execute(
+                    "INSERT INTO tiles(fileid, scale, x, y, data, quality, format) VALUES(?, ?, ?, ?, ?, ?, ?)",
+                    (1, 0, 1, 1, b"legacy-tile", 85, "jpg"),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            database = Database(cache_path)
+            try:
+                listed = database.list_files()
+                self.assertEqual(len(listed), 1)
+                self.assertEqual(listed[0].file_id, 1)
+                self.assertEqual(listed[0].url, str(image_path.resolve()))
+                self.assertEqual(listed[0].mtime_ns, int(stat.st_mtime) * 1_000_000_000)
+                self.assertTrue(database.file_exists_and_matches(listed[0]))
+
+                by_path = database.get_file_entry(str(image_path.resolve()))
+                self.assertIsNotNone(by_path)
+                self.assertEqual(by_path.file_id, 1)
+
+                tile = database.get_tile(1, 0, 1, 1)
+                self.assertIsNotNone(tile)
+                self.assertEqual(tile.jpeg_bytes, b"legacy-tile")
+                self.assertEqual((tile.width, tile.height), (44, 4))
+                self.assertEqual(database.get_min_max_scale(1), (0, 0))
+                self.assertEqual(database.count_tiles_for_file(1), 1)
             finally:
                 database.close()
 
