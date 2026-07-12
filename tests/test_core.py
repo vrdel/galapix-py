@@ -893,6 +893,19 @@ class GalapixPyCoreTests(unittest.TestCase):
         self.assertTrue(alpha.selected)
         self.assertFalse(bravo.selected)
 
+    def test_workspace_select_at_toggles_off_selected_image_without_ctrl(self) -> None:
+        workspace = Workspace()
+        alpha = Image("/tmp/alpha.jpg")
+        alpha.set_absolute(50.0, 50.0, 1.0)
+        workspace.add_image(alpha)
+
+        workspace.select_at(50.0, 50.0)
+        selected = workspace.select_at(50.0, 50.0)
+
+        self.assertIs(selected, alpha)
+        self.assertFalse(alpha.selected)
+        self.assertEqual(workspace.selected_images(), [])
+
     def test_workspace_select_at_can_toggle_multiple_images(self) -> None:
         workspace = Workspace()
         alpha = Image("/tmp/alpha.jpg")

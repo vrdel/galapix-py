@@ -31,10 +31,12 @@ class Workspace:
 
     def select_at(self, x: float, y: float, toggle: bool = False) -> Image | None:
         image = self.get_image_at(x, y)
+        was_selected = image.selected if image is not None else False
+        selected_count = len(self.selected_images()) if not toggle else 0
         if not toggle:
             self.clear_selection()
         if image is not None:
-            image.selected = not image.selected if toggle else True
+            image.selected = not image.selected if toggle else not (was_selected and selected_count == 1)
         return image
 
     def selected_images(self) -> list[Image]:
