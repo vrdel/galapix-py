@@ -526,6 +526,54 @@ class GalapixPyCoreTests(unittest.TestCase):
             finally:
                 database.close()
 
+    def test_prepare_with_rust_invokes_bundled_tool(self) -> None:
+        options = ViewerOptions(
+            database=Path("/tmp/test-db"),
+            threads=6,
+            jpeg_quality=72,
+            prepare_with_rust=True,
+            preserve_symlink_name=True,
+            ignore_pattern_case=True,
+        )
+        app = GalapixApp(options)
+
+        with patch(
+            "galapix_py.app.subprocess.run",
+            return_value=subprocess.CompletedProcess(["galapix-prepare"], 0, stdout="  stored_tiles: 3\n", stderr=""),
+        ) as run:
+            prepared = app.prepare(["/tmp/images"], patterns=["cat"])
+
+        self.assertTrue(prepared)
+        command = run.call_args.args[0]
+        self.assertTrue(str(command[0]).endswith("prepare-rust/galapix-prepare"))
+        self.assertEqual(
+            command[1:],
+            [
+                "-d",
+                "/tmp/test-db",
+                "-t",
+                "6",
+                "--jpeg-quality",
+                "72",
+                "-p",
+                "cat",
+                "--ignore-pattern-case",
+                "--preserve-symlink-name",
+                "/tmp/images",
+            ],
+        )
+        self.assertEqual(run.call_args.kwargs["capture_output"], True)
+        self.assertEqual(run.call_args.kwargs["text"], True)
+
+    def test_prepare_with_rust_returns_false_when_no_tiles_are_stored(self) -> None:
+        app = GalapixApp(ViewerOptions(database=Path("/tmp/test-db"), prepare_with_rust=True))
+
+        with patch(
+            "galapix_py.app.subprocess.run",
+            return_value=subprocess.CompletedProcess(["galapix-prepare"], 0, stdout="  stored_tiles: 0\n", stderr=""),
+        ):
+            self.assertFalse(app.prepare(["/tmp/images"]))
+
     def test_prepare_all_tiles_rebuilds_when_cached_entry_dimensions_are_stale(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
@@ -643,6 +691,50 @@ class GalapixPyCoreTests(unittest.TestCase):
                 self.assertIsNone(persistent_database.get_file_entry(str(direct.resolve())))
             finally:
                 persistent_database.close()
+
+    def test_view_temp_cache_can_prepare_with_rust(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            direct = base / "direct.jpg"
+            make_solid_jpeg(direct, width=160, height=90, color=(128, 64, 0))
+
+            options = ViewerOptions(database=base / "db", temp_cache=True, prepare_with_rust=True)
+            app = GalapixApp(options)
+
+            class StopViewer(Exception):
+                pass
+
+            captured = {}
+
+            def fake_prepare_with_rust(self, database_root, paths, patterns=(), *, emit_output):
+                captured["rust_prepare"] = (database_root, list(paths), list(patterns), emit_output)
+                database = Database(database_root)
+                try:
+                    entry = database.store_file_entry(probe_file_entry(direct))
+                    database.store_tiles(entry.file_id, [TileRecord(entry.file_id, 0, 0, 0, 16, 16, b"tile")])
+                finally:
+                    database.close()
+                return True
+
+            def fake_run(self) -> None:
+                workspace = self.viewer.workspace
+                captured["workspace"] = workspace
+                captured["temp_root"] = workspace.images[0].provider.db_thread.database.root
+                raise StopViewer()
+
+            with patch.object(GalapixApp, "_prepare_database_with_rust", new=fake_prepare_with_rust), \
+                 patch.object(GalapixApp, "_prepare_database", side_effect=AssertionError("python prepare should not run")), \
+                 patch("galapix_py.sdl_viewer.SDLViewer.run", new=fake_run):
+                with self.assertRaises(StopViewer):
+                    app.view([str(direct)], patterns=["direct"])
+
+            database_root, paths, patterns, emit_output = captured["rust_prepare"]
+            self.assertEqual(paths, [str(direct)])
+            self.assertEqual(patterns, ["direct"])
+            self.assertFalse(emit_output)
+            self.assertEqual([Path(image.url).name for image in captured["workspace"].images], ["direct.jpg"])
+            self.assertFalse(captured["temp_root"].exists())
+            self.assertFalse(database_root.exists())
 
     def test_view_sort_name_orders_initial_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1090,11 +1182,13 @@ class GalapixPyCoreTests(unittest.TestCase):
                 "1920x1080",
                 "--fullscreen",
                 "--temp-cache",
+                "--rust",
             ]
         )
         self.assertEqual(args.geometry, "1920x1080")
         self.assertTrue(args.fullscreen)
         self.assertTrue(args.temp_cache)
+        self.assertTrue(args.rust)
 
     def test_cli_prepare_rejects_view_only_flags(self) -> None:
         from galapix_py.cli import build_parser
@@ -1109,6 +1203,13 @@ class GalapixPyCoreTests(unittest.TestCase):
         parser = build_parser()
         args = parser.parse_args(["prepare", "--jpeg-quality", "72"])
         self.assertEqual(args.jpeg_quality, 72)
+
+    def test_cli_prepare_accepts_rust(self) -> None:
+        from galapix_py.cli import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["prepare", "--rust", "images"])
+        self.assertTrue(args.rust)
 
     def test_cli_prepare_accepts_preserve_symlink_name(self) -> None:
         from galapix_py.cli import build_parser
@@ -2543,6 +2644,7 @@ class CliViewTests(unittest.TestCase):
             "--selection-border-color", "#B02A37",
             "--show-filenames",
             "--temp-cache",
+            "--rust",
             "--quit-key", "Q",
             "-r", "test title",
             "/tmp/images",
@@ -2568,6 +2670,7 @@ class CliViewTests(unittest.TestCase):
         self.assertEqual(opts.spacing, 3)
         self.assertTrue(opts.show_filenames)
         self.assertTrue(opts.temp_cache)
+        self.assertTrue(opts.prepare_with_rust)
         self.assertEqual(opts.quit_key, "Q")
         self.assertEqual(opts.title, "test title")
         self.assertEqual(captured["patterns"], ["sample"])
@@ -2594,6 +2697,7 @@ class CliViewTests(unittest.TestCase):
         self.assertFalse(opts.fullscreen)
         self.assertFalse(opts.show_filenames)
         self.assertFalse(opts.temp_cache)
+        self.assertFalse(opts.prepare_with_rust)
         self.assertIsNone(opts.sort)
         self.assertIsNone(opts.background_color)
         self.assertIsNone(opts.quit_key)
@@ -2627,6 +2731,7 @@ class CliPrepareTests(unittest.TestCase):
             "-t", "8",
             "-p", "sample",
             "--ignore-pattern-case",
+            "--rust",
             "--jpeg-quality", "72",
             "--preserve-symlink-name",
             "/tmp/images",
@@ -2648,6 +2753,7 @@ class CliPrepareTests(unittest.TestCase):
         opts = captured["options"]
         self.assertEqual(opts.threads, 8)
         self.assertEqual(opts.jpeg_quality, 72)
+        self.assertTrue(opts.prepare_with_rust)
         self.assertTrue(opts.preserve_symlink_name)
         self.assertTrue(opts.ignore_pattern_case)
         self.assertEqual(captured["patterns"], ["sample"])

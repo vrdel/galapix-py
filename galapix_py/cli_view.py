@@ -51,6 +51,7 @@ def main() -> int:
     parser.add_argument("--case-insensitive-sort", action="store_true")
     parser.add_argument("--show-filenames", action="store_true")
     parser.add_argument("--temp-cache", action="store_true")
+    parser.add_argument("--rust", action="store_true")
     parser.add_argument("--quit-key", type=parse_quit_key)
     parser.add_argument("paths", nargs="*")
     args = parser.parse_args()
@@ -75,6 +76,7 @@ def main() -> int:
         case_insensitive_sort=args.case_insensitive_sort,
         show_filenames=args.show_filenames,
         temp_cache=args.temp_cache,
+        prepare_with_rust=args.rust,
         validate_render=args.validate_render,
         validation_timeout=args.validation_timeout,
         quit_key=args.quit_key,
