@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import importlib.resources
 import io
 import sqlite3
 import subprocess
@@ -545,7 +546,7 @@ class GalapixPyCoreTests(unittest.TestCase):
 
         self.assertTrue(prepared)
         command = run.call_args.args[0]
-        self.assertTrue(str(command[0]).endswith("prepare-rust/galapix-prepare"))
+        self.assertTrue(str(command[0]).endswith("galapix_py/bin/galapix-prepare"))
         self.assertEqual(
             command[1:],
             [
@@ -573,6 +574,15 @@ class GalapixPyCoreTests(unittest.TestCase):
             return_value=subprocess.CompletedProcess(["galapix-prepare"], 0, stdout="  stored_tiles: 0\n", stderr=""),
         ):
             self.assertFalse(app.prepare(["/tmp/images"]))
+
+    def test_prepare_with_rust_uses_packaged_binary_resource(self) -> None:
+        app = GalapixApp(ViewerOptions(database=Path("/tmp/test-db"), prepare_with_rust=True))
+        resource = app._rust_prepare_resource()
+
+        self.assertTrue(resource.is_file())
+        with importlib.resources.as_file(resource) as binary:
+            self.assertTrue(str(binary).endswith("galapix_py/bin/galapix-prepare"))
+            self.assertTrue(binary.stat().st_mode & 0o111)
 
     def test_prepare_all_tiles_rebuilds_when_cached_entry_dimensions_are_stale(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

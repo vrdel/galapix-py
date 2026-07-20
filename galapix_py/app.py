@@ -7,6 +7,7 @@ import re
 import subprocess
 import tempfile
 import time
+from importlib import resources
 from pathlib import Path
 from typing import Iterable
 
@@ -331,23 +332,24 @@ class GalapixApp:
         *,
         emit_output: bool,
     ) -> bool:
-        command = [
-            str(self._rust_prepare_binary()),
-            "-d",
-            str(database_root),
-            "-t",
-            str(max(1, self.options.threads)),
-            "--jpeg-quality",
-            str(max(1, min(100, self.options.jpeg_quality))),
-        ]
-        for pattern in patterns:
-            command.extend(["-p", pattern])
-        if self.options.ignore_pattern_case:
-            command.append("--ignore-pattern-case")
-        if self.options.preserve_symlink_name:
-            command.append("--preserve-symlink-name")
-        command.extend(list(paths))
-        result = subprocess.run(command, check=False, capture_output=True, text=True)
+        with resources.as_file(self._rust_prepare_resource()) as binary:
+            command = [
+                str(binary),
+                "-d",
+                str(database_root),
+                "-t",
+                str(max(1, self.options.threads)),
+                "--jpeg-quality",
+                str(max(1, min(100, self.options.jpeg_quality))),
+            ]
+            for pattern in patterns:
+                command.extend(["-p", pattern])
+            if self.options.ignore_pattern_case:
+                command.append("--ignore-pattern-case")
+            if self.options.preserve_symlink_name:
+                command.append("--preserve-symlink-name")
+            command.extend(list(paths))
+            result = subprocess.run(command, check=False, capture_output=True, text=True)
         if emit_output:
             if result.stdout:
                 print(result.stdout, end="")
@@ -359,14 +361,11 @@ class GalapixApp:
             raise RuntimeError(f"rust galapix-prepare failed with exit code {result.returncode}{suffix}")
         return self._rust_prepare_stored_tiles(result.stdout) > 0
 
-    def _rust_prepare_binary(self) -> Path:
-        binary = Path(__file__).resolve().parent.parent / "prepare-rust" / "galapix-prepare"
-        if binary.exists():
+    def _rust_prepare_resource(self):
+        binary = resources.files("galapix_py").joinpath("bin", "galapix-prepare")
+        if binary.is_file():
             return binary
-        binary = Path.cwd() / "prepare-rust" / "galapix-prepare"
-        if binary.exists():
-            return binary
-        raise FileNotFoundError("Rust prepare tool not found at prepare-rust/galapix-prepare")
+        raise FileNotFoundError("Rust prepare tool not found at galapix_py/bin/galapix-prepare")
 
     @staticmethod
     def _rust_prepare_stored_tiles(output: str) -> int:
