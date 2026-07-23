@@ -26,7 +26,6 @@ VIEW_DEFAULTS = [
     "--selection-border-color", DEFAULT_SELECTION_BORDER,
     "--spacing", DEFAULT_SPACING,
     "--geometry", DEFAULT_GEOMETRY,
-    "--quit-key", "Q",
     "--show-filenames",
     "--ignore-pattern-case",
 ]

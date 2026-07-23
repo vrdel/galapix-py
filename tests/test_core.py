@@ -2905,11 +2905,15 @@ class GalapixExeTests(unittest.TestCase):
         self.assertEqual(args.command, "prepare")
         self.assertEqual(args.args, ["-t", "8", "/tmp/images"])
 
-    def test_view_defaults_include_shift_q_quit_key(self) -> None:
+    def test_view_defaults_do_not_override_escape_quit_key(self) -> None:
         mod = _load_galapix_exe()
-        self.assertIn("--quit-key", mod.VIEW_DEFAULTS)
-        index = mod.VIEW_DEFAULTS.index("--quit-key")
-        self.assertEqual(mod.VIEW_DEFAULTS[index + 1], "Q")
+        self.assertNotIn("--quit-key", mod.VIEW_DEFAULTS)
+
+    def test_build_parser_preserves_user_quit_key(self) -> None:
+        mod = _load_galapix_exe()
+        parser = mod.build_parser()
+        args = parser.parse_args(["view", "--quit-key", "q", "/tmp/images"])
+        self.assertEqual(args.args, ["--quit-key", "q", "/tmp/images"])
 
 
 if __name__ == "__main__":
