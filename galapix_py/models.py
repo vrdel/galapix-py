@@ -48,6 +48,7 @@ class ViewerOptions:
     database: Path
     threads: int = 4
     jpeg_quality: int = 85
+    prepare_with_rust: bool = False
     preserve_symlink_name: bool = False
     ignore_pattern_case: bool = False
     title: str = "galapix-py"

@@ -31,8 +31,10 @@ def build_parser() -> argparse.ArgumentParser:
             cmd.add_argument("--case-insensitive-sort", action="store_true")
             cmd.add_argument("--show-filenames", action="store_true")
             cmd.add_argument("--temp-cache", action="store_true")
+            cmd.add_argument("--rust", action="store_true")
             cmd.add_argument("--quit-key", type=parse_quit_key)
         elif name == "prepare":
+            cmd.add_argument("--rust", action="store_true")
             cmd.add_argument("--jpeg-quality", type=int, default=85)
             cmd.add_argument("--preserve-symlink-name", action="store_true")
         cmd.add_argument("paths", nargs="*")
@@ -102,6 +104,7 @@ def main() -> int:
         database=Path(args.database).expanduser(),
         threads=args.threads,
         jpeg_quality=max(1, min(100, getattr(args, "jpeg_quality", 85))),
+        prepare_with_rust=getattr(args, "rust", False),
         preserve_symlink_name=getattr(args, "preserve_symlink_name", False),
         ignore_pattern_case=args.ignore_pattern_case,
         title=getattr(args, "title", "galapix-py"),

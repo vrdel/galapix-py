@@ -24,5 +24,8 @@ galapix-clean = "galapix_py.cli:cleanup_main"
 [tool.setuptools]
 package-dir = {"" = "."}
 
+[tool.setuptools.package-data]
+galapix_py = ["bin/galapix-prepare"]
+
 [tool.setuptools.packages.find]
 where = ["."]

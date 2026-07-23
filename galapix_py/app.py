@@ -4,8 +4,10 @@ import concurrent.futures
 import multiprocessing
 import os
 import re
+import subprocess
 import tempfile
 import time
+from importlib import resources
 from pathlib import Path
 from typing import Iterable
 
@@ -179,9 +181,12 @@ class GalapixApp:
             temp_cache_dir = tempfile.TemporaryDirectory(prefix="galapix-py-view-")
             database_root = Path(temp_cache_dir.name) / "db"
 
+        if self.options.temp_cache and self.options.prepare_with_rust:
+            self._prepare_database_with_rust(database_root, paths, patterns, emit_output=False)
+
         database = Database(database_root)
         try:
-            if self.options.temp_cache:
+            if self.options.temp_cache and not self.options.prepare_with_rust:
                 self._prepare_database(database, paths, patterns, emit_summary=False)
 
             db_thread = DatabaseThread(database, jobs)
@@ -311,11 +316,71 @@ class GalapixApp:
         return stored_tiles > 0
 
     def prepare(self, paths: Iterable[str], patterns: Iterable[str] = ()) -> bool:
+        if self.options.prepare_with_rust:
+            return self._prepare_database_with_rust(self.options.database, paths, patterns, emit_output=True)
         database = Database(self.options.database)
         try:
             return self._prepare_database(database, paths, patterns)
         finally:
             database.close()
+
+    def _prepare_database_with_rust(
+        self,
+        database_root: Path,
+        paths: Iterable[str],
+        patterns: Iterable[str] = (),
+        *,
+        emit_output: bool,
+    ) -> bool:
+        compiled_patterns = self.compile_patterns(patterns)
+        expanded = [path for path in self.expand_prepare_paths(paths) if self.pattern_matches(path, compiled_patterns)]
+        if not expanded:
+            return False
+
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as files_from:
+            files_from.write("\n".join(expanded))
+            files_from.write("\n")
+            files_from_path = files_from.name
+
+        with resources.as_file(self._rust_prepare_resource()) as binary:
+            command = [
+                str(binary),
+                "-d",
+                str(database_root),
+                "-t",
+                str(max(1, self.options.threads)),
+                "--jpeg-quality",
+                str(max(1, min(100, self.options.jpeg_quality))),
+                "-F",
+                files_from_path,
+            ]
+            if self.options.preserve_symlink_name:
+                command.append("--preserve-symlink-name")
+            try:
+                result = subprocess.run(command, check=False, capture_output=True, text=True)
+            finally:
+                os.unlink(files_from_path)
+        if emit_output:
+            if result.stdout:
+                print(result.stdout, end="")
+            if result.stderr:
+                print(result.stderr, end="")
+        if result.returncode != 0:
+            details = (result.stderr or result.stdout).strip()
+            suffix = f": {details}" if details else ""
+            raise RuntimeError(f"rust galapix-prepare failed with exit code {result.returncode}{suffix}")
+        return self._rust_prepare_stored_tiles(result.stdout) > 0
+
+    def _rust_prepare_resource(self):
+        binary = resources.files("galapix_py").joinpath("bin", "galapix-prepare")
+        if binary.is_file():
+            return binary
+        raise FileNotFoundError("Rust prepare tool not found at galapix_py/bin/galapix-prepare")
+
+    @staticmethod
+    def _rust_prepare_stored_tiles(output: str) -> int:
+        match = re.search(r"^\s*stored_tiles:\s*(\d+)\s*$", output, re.MULTILINE)
+        return int(match.group(1)) if match else 0
 
     def _format_elapsed(self, seconds: float) -> str:
         if seconds >= 60.0:

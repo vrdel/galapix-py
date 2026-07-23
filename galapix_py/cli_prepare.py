@@ -12,6 +12,7 @@ def main() -> int:
     parser.add_argument("-t", "--threads", type=int, default=4)
     parser.add_argument("-p", "--pattern", action="append", default=[])
     parser.add_argument("--ignore-pattern-case", action="store_true")
+    parser.add_argument("--rust", action="store_true")
     parser.add_argument("--jpeg-quality", type=int, default=85)
     parser.add_argument("--preserve-symlink-name", action="store_true")
     parser.add_argument("paths", nargs="+")
@@ -23,6 +24,7 @@ def main() -> int:
         database=Path(args.database).expanduser(),
         threads=args.threads,
         jpeg_quality=max(1, min(100, args.jpeg_quality)),
+        prepare_with_rust=args.rust,
         preserve_symlink_name=args.preserve_symlink_name,
         ignore_pattern_case=args.ignore_pattern_case,
     )
