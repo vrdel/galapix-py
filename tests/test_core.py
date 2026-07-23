@@ -528,52 +528,65 @@ class GalapixPyCoreTests(unittest.TestCase):
                 database.close()
 
     def test_prepare_with_rust_invokes_bundled_tool(self) -> None:
-        options = ViewerOptions(
-            database=Path("/tmp/test-db"),
-            threads=6,
-            jpeg_quality=72,
-            prepare_with_rust=True,
-            preserve_symlink_name=True,
-            ignore_pattern_case=True,
-        )
-        app = GalapixApp(options)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            image_path = base / "Cat.jpg"
+            make_solid_jpeg(image_path, width=100, height=80, color=(0, 64, 128))
+            skipped_path = base / "dog.jpg"
+            make_solid_jpeg(skipped_path, width=100, height=80, color=(64, 0, 128))
 
-        with patch(
-            "galapix_py.app.subprocess.run",
-            return_value=subprocess.CompletedProcess(["galapix-prepare"], 0, stdout="  stored_tiles: 3\n", stderr=""),
-        ) as run:
-            prepared = app.prepare(["/tmp/images"], patterns=["cat"])
+            options = ViewerOptions(
+                database=base / "test-db",
+                threads=6,
+                jpeg_quality=72,
+                prepare_with_rust=True,
+                preserve_symlink_name=True,
+                ignore_pattern_case=True,
+            )
+            app = GalapixApp(options)
+            captured_files: list[str] = []
 
-        self.assertTrue(prepared)
-        command = run.call_args.args[0]
-        self.assertTrue(str(command[0]).endswith("galapix_py/bin/galapix-prepare"))
-        self.assertEqual(
-            command[1:],
-            [
-                "-d",
-                "/tmp/test-db",
-                "-t",
-                "6",
-                "--jpeg-quality",
-                "72",
-                "-p",
-                "cat",
-                "--ignore-pattern-case",
-                "--preserve-symlink-name",
-                "/tmp/images",
-            ],
-        )
-        self.assertEqual(run.call_args.kwargs["capture_output"], True)
-        self.assertEqual(run.call_args.kwargs["text"], True)
+            def fake_run(command, **kwargs):
+                files_from_path = Path(command[command.index("-F") + 1])
+                captured_files.extend(files_from_path.read_text(encoding="utf-8").splitlines())
+                return subprocess.CompletedProcess(command, 0, stdout="  stored_tiles: 3\n", stderr="")
+
+            with patch("galapix_py.app.subprocess.run", side_effect=fake_run) as run:
+                prepared = app.prepare([str(base)], patterns=["cat"])
+
+            self.assertTrue(prepared)
+            command = run.call_args.args[0]
+            self.assertTrue(str(command[0]).endswith("galapix_py/bin/galapix-prepare"))
+            self.assertEqual(
+                command[1:],
+                [
+                    "-d",
+                    str(base / "test-db"),
+                    "-t",
+                    "6",
+                    "--jpeg-quality",
+                    "72",
+                    "-F",
+                    command[command.index("-F") + 1],
+                    "--preserve-symlink-name",
+                ],
+            )
+            self.assertEqual(captured_files, [str(image_path.absolute())])
+            self.assertEqual(run.call_args.kwargs["capture_output"], True)
+            self.assertEqual(run.call_args.kwargs["text"], True)
 
     def test_prepare_with_rust_returns_false_when_no_tiles_are_stored(self) -> None:
-        app = GalapixApp(ViewerOptions(database=Path("/tmp/test-db"), prepare_with_rust=True))
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            image_path = make_test_jpeg(base, width=100, height=80)
+            app = GalapixApp(ViewerOptions(database=base / "test-db", prepare_with_rust=True))
 
-        with patch(
-            "galapix_py.app.subprocess.run",
-            return_value=subprocess.CompletedProcess(["galapix-prepare"], 0, stdout="  stored_tiles: 0\n", stderr=""),
-        ):
-            self.assertFalse(app.prepare(["/tmp/images"]))
+            with patch(
+                "galapix_py.app.subprocess.run",
+                return_value=subprocess.CompletedProcess(["galapix-prepare"], 0, stdout="  stored_tiles: 0\n", stderr=""),
+            ) as run:
+                self.assertFalse(app.prepare([str(image_path)]))
+            run.assert_called_once()
 
     def test_prepare_with_rust_uses_packaged_binary_resource(self) -> None:
         app = GalapixApp(ViewerOptions(database=Path("/tmp/test-db"), prepare_with_rust=True))

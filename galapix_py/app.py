@@ -332,6 +332,16 @@ class GalapixApp:
         *,
         emit_output: bool,
     ) -> bool:
+        compiled_patterns = self.compile_patterns(patterns)
+        expanded = [path for path in self.expand_prepare_paths(paths) if self.pattern_matches(path, compiled_patterns)]
+        if not expanded:
+            return False
+
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as files_from:
+            files_from.write("\n".join(expanded))
+            files_from.write("\n")
+            files_from_path = files_from.name
+
         with resources.as_file(self._rust_prepare_resource()) as binary:
             command = [
                 str(binary),
@@ -341,15 +351,15 @@ class GalapixApp:
                 str(max(1, self.options.threads)),
                 "--jpeg-quality",
                 str(max(1, min(100, self.options.jpeg_quality))),
+                "-F",
+                files_from_path,
             ]
-            for pattern in patterns:
-                command.extend(["-p", pattern])
-            if self.options.ignore_pattern_case:
-                command.append("--ignore-pattern-case")
             if self.options.preserve_symlink_name:
                 command.append("--preserve-symlink-name")
-            command.extend(list(paths))
-            result = subprocess.run(command, check=False, capture_output=True, text=True)
+            try:
+                result = subprocess.run(command, check=False, capture_output=True, text=True)
+            finally:
+                os.unlink(files_from_path)
         if emit_output:
             if result.stdout:
                 print(result.stdout, end="")
