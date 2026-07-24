@@ -1,63 +1,15 @@
 from __future__ import annotations
 
-import concurrent.futures
-import multiprocessing
 import os
 import re
 import subprocess
 import tempfile
-import time
 from importlib import resources
 from pathlib import Path
 from typing import Iterable
 
 from .database import Database
-from .models import FileEntry, TileRecord, ViewerOptions
-
-
-def _prepare_one(
-    path: str,
-    cached_entry: FileEntry | None,
-    cached_min: int | None,
-    cached_max: int | None,
-    preserve_symlink_name: bool,
-    jpeg_quality: int,
-) -> tuple[str, FileEntry, bool, list[TileRecord]]:
-    from .tiling import generate_tiles_for_entry, probe_file_entry
-
-    fresh = probe_file_entry(path, url=path if preserve_symlink_name else None)
-    is_current = (
-        cached_entry is not None
-        and cached_entry.mtime_ns == fresh.mtime_ns
-        and cached_entry.size_bytes == fresh.size_bytes
-        and cached_entry.width == fresh.width
-        and cached_entry.height == fresh.height
-        and cached_entry.image_format == fresh.image_format
-    )
-    is_complete = (
-        is_current
-        and cached_min is not None
-        and cached_max is not None
-        and cached_min <= 0
-        and cached_max >= fresh.thumbnail_scale
-    )
-    if is_complete:
-        return path, fresh, True, []
-    tiles = list(
-        generate_tiles_for_entry(
-            fresh,
-            0,
-            fresh.thumbnail_scale,
-            quality=jpeg_quality,
-        )
-    )
-    return path, fresh, False, tiles
-
-
-def _prepare_process_pool_kwargs() -> dict[str, object]:
-    if "fork" in multiprocessing.get_all_start_methods():
-        return {"mp_context": multiprocessing.get_context("fork")}
-    return {}
+from .models import ViewerOptions
 
 
 class GalapixApp:
@@ -96,8 +48,8 @@ class GalapixApp:
             elif path.exists():
                 resolved = str(path.resolve())
                 if resolved not in seen:
-                            seen.add(resolved)
-                            results.append(resolved)
+                    seen.add(resolved)
+                    results.append(resolved)
         return results
 
     def expand_prepare_paths(self, paths: Iterable[str]) -> list[str]:
@@ -181,14 +133,11 @@ class GalapixApp:
             temp_cache_dir = tempfile.TemporaryDirectory(prefix="galapix-py-view-")
             database_root = Path(temp_cache_dir.name) / "db"
 
-        if self.options.temp_cache and self.options.prepare_with_rust:
+        if self.options.temp_cache:
             self._prepare_database_with_rust(database_root, paths, patterns, emit_output=False)
 
         database = Database(database_root)
         try:
-            if self.options.temp_cache and not self.options.prepare_with_rust:
-                self._prepare_database(database, paths, patterns, emit_summary=False)
-
             db_thread = DatabaseThread(database, jobs)
             for entry in database.list_files():
                 if self.pattern_matches(entry.url, compiled_patterns):
@@ -230,99 +179,8 @@ class GalapixApp:
             if temp_cache_dir is not None:
                 temp_cache_dir.cleanup()
 
-    def _prepare_database(
-        self,
-        database: Database,
-        paths: Iterable[str],
-        patterns: Iterable[str] = (),
-        *,
-        emit_summary: bool = True,
-    ) -> bool:
-        started_at = time.perf_counter()
-        compiled_patterns = self.compile_patterns(patterns)
-
-        expanded = [path for path in self.expand_prepare_paths(paths) if self.pattern_matches(path, compiled_patterns)]
-        if not expanded:
-            return False
-
-        worker_count = max(1, self.options.threads)
-        skipped = 0
-        prepared = 0
-        stored_tiles = 0
-        with database.bulk_writes():
-            with concurrent.futures.ProcessPoolExecutor(
-                max_workers=worker_count,
-                **_prepare_process_pool_kwargs(),
-            ) as executor:
-                pending: dict[concurrent.futures.Future, tuple[str, object | None]] = {}
-                path_iter = iter(expanded)
-
-                def submit_next() -> bool:
-                    try:
-                        path = next(path_iter)
-                    except StopIteration:
-                        return False
-                    cached_entry = database.get_file_entry(path)
-                    cached_min = cached_max = None
-                    if cached_entry is not None and cached_entry.file_id is not None:
-                        cached_min, cached_max = database.get_min_max_scale(cached_entry.file_id)
-                    pending[
-                        executor.submit(
-                            _prepare_one,
-                            path,
-                            cached_entry,
-                            cached_min,
-                            cached_max,
-                            self.options.preserve_symlink_name,
-                            self.options.jpeg_quality,
-                        )
-                    ] = (path, cached_entry)
-                    return True
-
-                for _ in range(worker_count):
-                    if not submit_next():
-                        break
-
-                while pending:
-                    done, _ = concurrent.futures.wait(
-                        pending.keys(),
-                        return_when=concurrent.futures.FIRST_COMPLETED,
-                    )
-                    for future in done:
-                        path, cached_entry = pending.pop(future)
-                        _, fresh, should_skip, tiles = future.result()
-                        if should_skip:
-                            skipped += 1
-                            submit_next()
-                            continue
-                        if cached_entry is not None and cached_entry.file_id is not None:
-                            database.delete_file_entry(cached_entry.file_id, commit=False)
-                        stored_entry = database.store_file_entry(fresh, commit=False)
-                        database.store_tiles(stored_entry.file_id, tiles, commit=False)
-                        prepared += 1
-                        stored_tiles += len(tiles)
-                        submit_next()
-        pending_count = len(expanded) - skipped
-        if emit_summary:
-            print("galapix-py")
-            print(f"  database: {database.path}")
-            print(f"  discovered: {len(expanded)}")
-            print(f"  skipped: {skipped}")
-            print(f"  pending: {pending_count}")
-            print(f"  threads: {worker_count}")
-            print(f"  prepared: {prepared}")
-            print(f"  stored_tiles: {stored_tiles}")
-            print(f"  elapsed: {self._format_elapsed(time.perf_counter() - started_at)}")
-        return stored_tiles > 0
-
     def prepare(self, paths: Iterable[str], patterns: Iterable[str] = ()) -> bool:
-        if self.options.prepare_with_rust:
-            return self._prepare_database_with_rust(self.options.database, paths, patterns, emit_output=True)
-        database = Database(self.options.database)
-        try:
-            return self._prepare_database(database, paths, patterns)
-        finally:
-            database.close()
+        return self._prepare_database_with_rust(self.options.database, paths, patterns, emit_output=True)
 
     def _prepare_database_with_rust(
         self,
@@ -381,11 +239,6 @@ class GalapixApp:
     def _rust_prepare_stored_tiles(output: str) -> int:
         match = re.search(r"^\s*stored_tiles:\s*(\d+)\s*$", output, re.MULTILINE)
         return int(match.group(1)) if match else 0
-
-    def _format_elapsed(self, seconds: float) -> str:
-        if seconds >= 60.0:
-            return f"{seconds:.2f}s ({seconds / 60.0:.2f}m)"
-        return f"{seconds:.2f}s"
 
     def list_files(self) -> None:
         database = Database(self.options.database)
