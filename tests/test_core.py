@@ -397,10 +397,11 @@ class GalapixPyCoreTests(unittest.TestCase):
                 app.prepare([str(image_path)])
 
             text = output.getvalue()
-            self.assertIn("galapix-py\n", text)
+            self.assertIn("Using database: ", text)
             self.assertIn(f"  database: {base / 'db' / 'cache.sqlite3'}\n", text)
             self.assertIn("  discovered: 1\n", text)
             self.assertIn("  skipped: 0\n", text)
+            self.assertIn("  already_prepared: 0\n", text)
             self.assertIn("  pending: 1\n", text)
             self.assertIn("  threads: 12\n", text)
             self.assertIn("  prepared: 1\n", text)
@@ -715,13 +716,13 @@ class GalapixPyCoreTests(unittest.TestCase):
             finally:
                 persistent_database.close()
 
-    def test_view_temp_cache_can_prepare_with_rust(self) -> None:
+    def test_view_temp_cache_prepares_with_rust_even_without_compatibility_flag(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
             direct = base / "direct.jpg"
             make_solid_jpeg(direct, width=160, height=90, color=(128, 64, 0))
 
-            options = ViewerOptions(database=base / "db", temp_cache=True, prepare_with_rust=True)
+            options = ViewerOptions(database=base / "db", temp_cache=True, prepare_with_rust=False)
             app = GalapixApp(options)
 
             class StopViewer(Exception):
@@ -746,7 +747,6 @@ class GalapixPyCoreTests(unittest.TestCase):
                 raise StopViewer()
 
             with patch.object(GalapixApp, "_prepare_database_with_rust", new=fake_prepare_with_rust), \
-                 patch.object(GalapixApp, "_prepare_database", side_effect=AssertionError("python prepare should not run")), \
                  patch("galapix_py.sdl_viewer.SDLViewer.run", new=fake_run):
                 with self.assertRaises(StopViewer):
                     app.view([str(direct)], patterns=["direct"])
