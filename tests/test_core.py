@@ -19,7 +19,7 @@ from galapix_py.app import GalapixApp
 from galapix_py.database import Database
 from galapix_py.image import Image, ImageTileCache
 from galapix_py.models import TileRecord, ViewerOptions
-from galapix_py.sdl_viewer import LiveRenderValidation, SDLViewer, configure_app_identity_hint, quit_key_matches, set_x11_window_class
+from galapix_py.sdl_viewer import LiveRenderValidation, SDLViewer, configure_app_identity_hint, enable_vsync, quit_key_matches, set_x11_window_class
 from galapix_py import tiling
 from galapix_py.tiling import generate_tiles_for_entry, probe_file_entry
 from galapix_py.viewer import (
@@ -2391,6 +2391,13 @@ class GalapixPyCoreTests(unittest.TestCase):
             ]
         )
         self.assertEqual(len(tex_parameter.call_args_list), 4)
+
+    def test_enable_vsync_requests_strict_swap_interval(self) -> None:
+        with patch("galapix_py.sdl_viewer.sdl2.SDL_GL_SetSwapInterval", return_value=0) as set_swap_interval:
+            enabled = enable_vsync()
+
+        self.assertTrue(enabled)
+        set_swap_interval.assert_called_once_with(1)
 
     def test_viewer_uses_configured_background_color_override(self) -> None:
         options = ViewerOptions(database=Path("/tmp/db"), background_color=(0.1, 0.2, 0.3, 1.0))

@@ -15,6 +15,10 @@ from .viewer import FrameRenderStats, Viewer
 APP_ID = b"galapix-py"
 
 
+def enable_vsync() -> bool:
+    return sdl2.SDL_GL_SetSwapInterval(1) == 0
+
+
 class XClassHint(ctypes.Structure):
     _fields_ = [
         ("res_name", ctypes.c_char_p),
@@ -243,6 +247,11 @@ class SDLViewer:
         self.context = sdl2.SDL_GL_CreateContext(self.window)
         if not self.context:
             raise RuntimeError(f"SDL_GL_CreateContext failed: {sdl2.SDL_GetError().decode()}")
+        if not enable_vsync():
+            print(
+                f"warning: could not enable OpenGL vsync: {sdl2.SDL_GetError().decode()}",
+                file=sys.stderr,
+            )
         sdl2.SDL_ShowWindow(self.window)
         self.viewer.set_viewport(self.viewer.options.width, self.viewer.options.height)
         self.viewer.zoom_to_workspace()
