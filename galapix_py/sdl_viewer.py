@@ -388,7 +388,7 @@ class SDLViewer:
         elif event.type == sdl2.SDL_MOUSEBUTTONDOWN:
             if getattr(self.viewer, "search_active", False):
                 return
-            if event.button.button == sdl2.SDL_BUTTON_LEFT:
+            if event.button.button == sdl2.SDL_BUTTON_RIGHT:
                 self.mouse_down_pos = (event.button.x, event.button.y)
         elif event.type == sdl2.SDL_MOUSEMOTION:
             if getattr(self.viewer, "search_active", False):
@@ -407,7 +407,7 @@ class SDLViewer:
         elif event.type == sdl2.SDL_MOUSEBUTTONUP:
             if getattr(self.viewer, "search_active", False):
                 return
-            if event.button.button == sdl2.SDL_BUTTON_LEFT and self.mouse_down_pos is not None:
+            if event.button.button == sdl2.SDL_BUTTON_RIGHT and self.mouse_down_pos is not None:
                 dx = event.button.x - self.mouse_down_pos[0]
                 dy = event.button.y - self.mouse_down_pos[1]
                 if abs(dx) <= 3 and abs(dy) <= 3:

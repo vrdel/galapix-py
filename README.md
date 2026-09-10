@@ -177,8 +177,8 @@ Navigation:
 
 Selection and editing:
 
-- `Left click`: select topmost image under cursor
-- `Ctrl+Left click`: add or remove image from the current selection
+- `Right click`: select topmost image under cursor
+- `Ctrl+Right click`: add or remove image from the current selection
 - `Ctrl+e`: enter or exit keyboard selection mode; exiting clears the current selection
     - `Arrow keys` or `i` / `j` / `k` / `l`: move the keyboard selection cursor
     - `Shift+Arrow keys` or `Shift+i` / `Shift+j` / `Shift+k` / `Shift+l`: pan the viewport

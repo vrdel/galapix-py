@@ -1728,7 +1728,7 @@ class GalapixPyCoreTests(unittest.TestCase):
         self.assertEqual(state.offset_x, state.target_offset_x)
         self.assertEqual(state.offset_y, state.target_offset_y)
 
-    def test_ctrl_left_click_toggles_selection(self) -> None:
+    def test_right_click_selection(self) -> None:
         calls: list[tuple[int, int, bool]] = []
 
         class DummyViewer:
@@ -1749,13 +1749,25 @@ class GalapixPyCoreTests(unittest.TestCase):
         with (
             patch("galapix_py.sdl_viewer.sdl2.SDL_MOUSEBUTTONDOWN", 1),
             patch("galapix_py.sdl_viewer.sdl2.SDL_MOUSEBUTTONUP", 2),
-            patch("galapix_py.sdl_viewer.sdl2.SDL_BUTTON_LEFT", 1),
-            patch.object(SDLViewer, "_ctrl_pressed", return_value=True),
+            patch("galapix_py.sdl_viewer.sdl2.SDL_BUTTON_RIGHT", 3),
+            patch.object(SDLViewer, "_ctrl_pressed") as ctrl_pressed,
         ):
-            sdl_viewer._process_event(down)
-            sdl_viewer._process_event(up)
-
-        self.assertEqual(calls, [(41, 51, True)])
+            for button, ctrl, x, expected in (
+                (3, False, 41, [(41, 51, False)]),
+                (3, True, 41, [(41, 51, True)]),
+                (1, False, 41, []),
+                (1, True, 41, []),
+                (3, False, 60, []),
+            ):
+                with self.subTest(button=button, ctrl=ctrl, release_x=x):
+                    calls.clear()
+                    ctrl_pressed.return_value = ctrl
+                    down.button.button = up.button.button = button
+                    up.button.x = x
+                    sdl_viewer._process_event(down)
+                    sdl_viewer._process_event(up)
+                    self.assertEqual(calls, expected)
+                    self.assertIsNone(sdl_viewer.mouse_down_pos)
 
     def test_mouse_wheel_zoom_uses_larger_step_with_ctrl(self) -> None:
         zoom_calls: list[tuple[float, int, int]] = []
