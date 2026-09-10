@@ -167,12 +167,11 @@ Navigation:
 - `Mouse wheel`: zoom around cursor
 - `Left drag`: pan
 - `Arrow keys`: pan
-- `h` / `j` / `k` / `l`: pan left / down / up / right
+- `i` / `j` / `k` / `l`: pan up / left / down / right
 - `Ctrl+Arrow keys`: faster pan
 - `w`: zoom in
 - `s`: zoom out
 - `Ctrl+w` / `Ctrl+s`: faster zoom
-- `i`: reset view
 - `x`: zoom to selection, or whole workspace if nothing is selected
 - `n`: zoom to original size (1:1 pixel mapping) centered on selected image
 
@@ -181,8 +180,8 @@ Selection and editing:
 - `Left click`: select topmost image under cursor
 - `Ctrl+Left click`: add or remove image from the current selection
 - `Ctrl+e`: enter or exit keyboard selection mode; exiting clears the current selection
-    - `Arrow keys` or `h` / `j` / `k` / `l`: move the keyboard selection cursor
-    - `Shift+Arrow keys` or `Shift+h` / `Shift+j` / `Shift+k` / `Shift+l`: pan the viewport
+    - `Arrow keys` or `i` / `j` / `k` / `l`: move the keyboard selection cursor
+    - `Shift+Arrow keys` or `Shift+i` / `Shift+j` / `Shift+k` / `Shift+l`: pan the viewport
     - `Enter`: add or remove the focused image from the current selection
     - `o`: open selected images while staying in keyboard selection mode
     - A bottom-left badge indicates selection mode; selected images are tinted green and the focused image is tinted yellow

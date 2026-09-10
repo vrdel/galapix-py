@@ -1357,7 +1357,7 @@ class GalapixPyCoreTests(unittest.TestCase):
         self.assertTrue(viewer.redraw_requested)
         self.assertEqual(sdl_viewer._current_sort, "url-reverse")
 
-    def test_keydown_i_resets_view(self) -> None:
+    def test_keydown_i_does_not_reset_view(self) -> None:
         calls: list[str] = []
 
         class DummyViewer:
@@ -1382,8 +1382,8 @@ class GalapixPyCoreTests(unittest.TestCase):
             event.key = type("Key", (), {"keysym": type("Keysym", (), {"sym": 105, "mod": 0})()})()
             sdl_viewer._process_event(event)
 
-        self.assertEqual(calls, ["home"])
-        self.assertTrue(viewer.redraw_requested)
+        self.assertEqual(calls, [])
+        self.assertFalse(viewer.redraw_requested)
 
     def test_keydown_o_opens_selected_image_in_new_viewer(self) -> None:
         class DummyImage:
@@ -2086,7 +2086,7 @@ class GalapixPyCoreTests(unittest.TestCase):
         self.assertEqual(move_calls, [(48.0, 0.0)])
         self.assertTrue(viewer.redraw_requested)
 
-    def test_keyboard_vim_pan_uses_arrow_step(self) -> None:
+    def test_keyboard_ijkl_pan_uses_arrow_step(self) -> None:
         move_calls: list[tuple[float, float]] = []
 
         class DummyState:
@@ -2110,12 +2110,12 @@ class GalapixPyCoreTests(unittest.TestCase):
 
         with (
             patch("galapix_py.sdl_viewer.sdl2.SDL_GetKeyboardState", return_value=FakeKeyState()),
-            patch("galapix_py.sdl_viewer.sdl2.SDL_GetScancodeFromKey", side_effect=lambda key: 1 if key == 104 else 0),
+            patch("galapix_py.sdl_viewer.sdl2.SDL_GetScancodeFromKey", side_effect=lambda key: 1 if key == active_key else 0),
             patch("galapix_py.sdl_viewer.sdl2.SDLK_LEFT", 276),
             patch("galapix_py.sdl_viewer.sdl2.SDLK_RIGHT", 275),
             patch("galapix_py.sdl_viewer.sdl2.SDLK_UP", 273),
             patch("galapix_py.sdl_viewer.sdl2.SDLK_DOWN", 274),
-            patch("galapix_py.sdl_viewer.sdl2.SDLK_h", 104),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_i", 105),
             patch("galapix_py.sdl_viewer.sdl2.SDLK_j", 106),
             patch("galapix_py.sdl_viewer.sdl2.SDLK_k", 107),
             patch("galapix_py.sdl_viewer.sdl2.SDLK_l", 108),
@@ -2126,10 +2126,19 @@ class GalapixPyCoreTests(unittest.TestCase):
             patch.object(SDLViewer, "_shift_pressed", return_value=False),
             patch.object(SDLViewer, "_ctrl_pressed", return_value=False),
         ):
-            sdl_viewer._process_keyboard_state()
-
-        self.assertEqual(move_calls, [(16.0, 0.0)])
-        self.assertTrue(viewer.redraw_requested)
+            for active_key, expected in (
+                (105, [(0.0, 16.0)]),
+                (106, [(16.0, 0.0)]),
+                (107, [(0.0, -16.0)]),
+                (108, [(-16.0, 0.0)]),
+                (104, []),
+            ):
+                with self.subTest(key=chr(active_key)):
+                    move_calls.clear()
+                    viewer.redraw_requested = False
+                    sdl_viewer._process_keyboard_state()
+                    self.assertEqual(move_calls, expected)
+                    self.assertEqual(viewer.redraw_requested, bool(expected))
 
     def test_keyboard_state_is_ignored_while_search_is_active(self) -> None:
         zoom_calls: list[tuple[float, float, float]] = []
@@ -2297,7 +2306,7 @@ class GalapixPyCoreTests(unittest.TestCase):
             patch("galapix_py.sdl_viewer.sdl2.KMOD_CTRL", 64),
             patch("galapix_py.sdl_viewer.sdl2.SDLK_e", 101),
             patch("galapix_py.sdl_viewer.sdl2.SDLK_RIGHT", 275),
-            patch("galapix_py.sdl_viewer.sdl2.SDLK_h", 104),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_i", 105),
             patch("galapix_py.sdl_viewer.sdl2.SDLK_j", 106),
             patch("galapix_py.sdl_viewer.sdl2.SDLK_k", 107),
             patch("galapix_py.sdl_viewer.sdl2.SDLK_l", 108),
@@ -2305,7 +2314,7 @@ class GalapixPyCoreTests(unittest.TestCase):
             patch("galapix_py.sdl_viewer.sdl2.SDLK_o", 111),
             patch.object(sdl_viewer, "_open_selected_image_window") as open_selected,
         ):
-            for sym, mod in ((101, 64), (275, 0), (104, 0), (106, 0), (107, 0), (108, 0), (13, 0), (111, 0), (101, 64)):
+            for sym, mod in ((101, 64), (275, 0), (104, 0), (106, 0), (107, 0), (105, 0), (108, 0), (13, 0), (111, 0), (101, 64)):
                 event = type("Event", (), {})()
                 event.type = 1
                 event.key = type("Key", (), {"keysym": type("Keysym", (), {"sym": sym, "mod": mod})()})()
@@ -2326,7 +2335,7 @@ class GalapixPyCoreTests(unittest.TestCase):
         )
         open_selected.assert_called_once_with()
 
-    def test_keyboard_selection_mode_shift_arrows_and_hjkl_pan(self) -> None:
+    def test_keyboard_selection_mode_shift_arrows_and_ijkl_pan(self) -> None:
         actions: list[tuple[str, object]] = []
 
         class DummyState:
@@ -2355,9 +2364,10 @@ class GalapixPyCoreTests(unittest.TestCase):
             patch("galapix_py.sdl_viewer.sdl2.KMOD_SHIFT", 1),
             patch("galapix_py.sdl_viewer.sdl2.SDLK_e", 101),
             patch("galapix_py.sdl_viewer.sdl2.SDLK_RIGHT", 275),
-            patch("galapix_py.sdl_viewer.sdl2.SDLK_h", 104),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_i", 105),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_j", 106),
         ):
-            for sym, mod in ((275, 1), (104, 1), (275, 0)):
+            for sym, mod in ((275, 1), (106, 1), (104, 1), (275, 0)):
                 event = type("Event", (), {})()
                 event.type = 1
                 event.key = type("Key", (), {"keysym": type("Keysym", (), {"sym": sym, "mod": mod})()})()

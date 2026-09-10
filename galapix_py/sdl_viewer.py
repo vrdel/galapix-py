@@ -329,16 +329,16 @@ class SDLViewer:
         if not keyboard_selection_active and pressed(sdl2.SDLK_DOWN):
             self.viewer.state.move(0.0, -pan_step)
             moved = True
-        if not keyboard_selection_active and pressed(sdl2.SDLK_h):
+        if not keyboard_selection_active and pressed(sdl2.SDLK_j):
             self.viewer.state.move(+pan_step, 0.0)
             moved = True
         if not keyboard_selection_active and pressed(sdl2.SDLK_l):
             self.viewer.state.move(-pan_step, 0.0)
             moved = True
-        if not keyboard_selection_active and pressed(sdl2.SDLK_k):
+        if not keyboard_selection_active and pressed(sdl2.SDLK_i):
             self.viewer.state.move(0.0, +pan_step)
             moved = True
-        if not keyboard_selection_active and pressed(sdl2.SDLK_j):
+        if not keyboard_selection_active and pressed(sdl2.SDLK_k):
             self.viewer.state.move(0.0, -pan_step)
             moved = True
         if pressed(sdl2.SDLK_w):
@@ -352,13 +352,13 @@ class SDLViewer:
             self.viewer.request_redraw()
 
     def _pan_by_keyboard_shortcut(self, sym: int, step: float = 48.0) -> bool:
-        if sym in {sdl2.SDLK_LEFT, sdl2.SDLK_h}:
+        if sym in {sdl2.SDLK_LEFT, sdl2.SDLK_j}:
             self.viewer.state.move(+step, 0.0)
         elif sym in {sdl2.SDLK_RIGHT, sdl2.SDLK_l}:
             self.viewer.state.move(-step, 0.0)
-        elif sym in {sdl2.SDLK_UP, sdl2.SDLK_k}:
+        elif sym in {sdl2.SDLK_UP, sdl2.SDLK_i}:
             self.viewer.state.move(0.0, +step)
-        elif sym in {sdl2.SDLK_DOWN, sdl2.SDLK_j}:
+        elif sym in {sdl2.SDLK_DOWN, sdl2.SDLK_k}:
             self.viewer.state.move(0.0, -step)
         else:
             return False
@@ -439,13 +439,13 @@ class SDLViewer:
             elif getattr(self.viewer, "keyboard_selection_active", False):
                 if shift and self._pan_by_keyboard_shortcut(sym):
                     pass
-                elif sym in {sdl2.SDLK_LEFT, sdl2.SDLK_h}:
+                elif sym in {sdl2.SDLK_LEFT, sdl2.SDLK_j}:
                     self.viewer.move_keyboard_selection(-1, 0)
                 elif sym in {sdl2.SDLK_RIGHT, sdl2.SDLK_l}:
                     self.viewer.move_keyboard_selection(1, 0)
-                elif sym in {sdl2.SDLK_UP, sdl2.SDLK_k}:
+                elif sym in {sdl2.SDLK_UP, sdl2.SDLK_i}:
                     self.viewer.move_keyboard_selection(0, -1)
-                elif sym in {sdl2.SDLK_DOWN, sdl2.SDLK_j}:
+                elif sym in {sdl2.SDLK_DOWN, sdl2.SDLK_k}:
                     self.viewer.move_keyboard_selection(0, 1)
                 elif sym == sdl2.SDLK_RETURN:
                     self.viewer.toggle_keyboard_selection_image()
@@ -457,9 +457,6 @@ class SDLViewer:
                 self.viewer.open_search()
                 self._suppress_opening_search_text = True
                 sdl2.SDL_StartTextInput()
-            elif sym == sdl2.SDLK_i:
-                self.viewer.zoom_home()
-                self.viewer.request_redraw()
             elif sym == sdl2.SDLK_x:
                 self.viewer.zoom_to_selection()
                 self.viewer.request_redraw()
