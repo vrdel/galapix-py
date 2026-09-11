@@ -2588,6 +2588,86 @@ class GalapixPyCoreTests(unittest.TestCase):
         self.assertAlmostEqual(viewer.search_query_box_color()[1], 0.105)
         self.assertAlmostEqual(viewer.search_query_box_color()[2], 0.14)
 
+    def test_zoom_to_original_centers_image_from_filtered_results(self) -> None:
+        for query, selected_index, expected_index in (
+            ("cat", None, 1),
+            ("cat", 0, 1),
+            ("cat", 2, 2),
+            ("", None, 0),
+            ("", 2, 2),
+        ):
+            with self.subTest(query=query, selected_index=selected_index):
+                images = [Image(f"/tmp/{name}.jpg") for name in ("dog", "cat-one", "cat-two")]
+                for index, image in enumerate(images):
+                    image.set_absolute(1000.0 * (index + 1), 500.0 * (index + 1), 0.5)
+                    image.selected = index == selected_index
+                workspace = Workspace(images=images)
+                workspace.set_search_query(query)
+                viewer = Viewer(ViewerOptions(database=Path("/tmp/db")), workspace, None)
+
+                viewer.zoom_to_original()
+                viewer.state.snap_to_target()
+
+                expected = images[expected_index]
+                self.assertEqual(viewer.state.scale * expected.placement.scale, 1.0)
+                self.assertEqual(
+                    viewer.world_to_screen(expected.placement.x, expected.placement.y),
+                    (viewer.viewport_width / 2.0, viewer.viewport_height / 2.0),
+                )
+
+    def test_zoom_to_original_with_no_filtered_results_preserves_view(self) -> None:
+        image = Image("/tmp/dog.jpg")
+        image.selected = True
+        workspace = Workspace(images=[image], search_query="cat")
+        viewer = Viewer(ViewerOptions(database=Path("/tmp/db")), workspace, None)
+        viewer.state = ViewerState(target_scale=3.0, target_offset_x=123.0, target_offset_y=456.0)
+
+        viewer.zoom_to_original()
+
+        self.assertEqual(
+            viewer.state,
+            ViewerState(target_scale=3.0, target_offset_x=123.0, target_offset_y=456.0),
+        )
+
+    def test_n_key_centers_keyboard_focused_image_at_original_size(self) -> None:
+        for query in ("", "cat"):
+            for select_focused in (False, True):
+                with self.subTest(query=query, select_focused=select_focused):
+                    images = [Image(f"/tmp/{name}.jpg") for name in ("dog", "cat-one", "cat-two")]
+                    for index, image in enumerate(images):
+                        image.set_absolute(1000.0 * index, 0.0, 0.5)
+                    images[1].selected = True
+                    workspace = Workspace(images=images, search_query=query)
+                    viewer = Viewer(ViewerOptions(database=Path("/tmp/db")), workspace, None)
+                    viewer.toggle_keyboard_selection_mode()
+                    viewer.move_keyboard_selection(1, 0)
+                    self.assertIs(viewer.keyboard_selection_image(), images[2])
+                    if select_focused:
+                        viewer.toggle_keyboard_selection_image()
+                    viewer.needs_redraw = False
+                    sdl_viewer = SDLViewer(viewer)
+
+                    with (
+                        patch("galapix_py.sdl_viewer.sdl2.SDL_KEYDOWN", 1),
+                        patch("galapix_py.sdl_viewer.sdl2.SDLK_n", 110),
+                    ):
+                        event = type("Event", (), {})()
+                        event.type = 1
+                        event.key = type("Key", (), {"keysym": type("Keysym", (), {"sym": 110, "mod": 0})()})()
+                        sdl_viewer._process_event(event)
+
+                    viewer.state.snap_to_target()
+                    focused = images[2]
+                    self.assertEqual(viewer.state.scale * focused.placement.scale, 1.0)
+                    self.assertEqual(
+                        viewer.world_to_screen(focused.placement.x, focused.placement.y),
+                        (viewer.viewport_width / 2.0, viewer.viewport_height / 2.0),
+                    )
+                    self.assertTrue(viewer.needs_redraw)
+                    self.assertTrue(viewer.keyboard_selection_active)
+                    self.assertTrue(images[1].selected)
+                    self.assertEqual(focused.selected, select_focused)
+
     def test_viewer_status_text_reports_search_filter(self) -> None:
         workspace = Workspace()
         workspace.add_image(Image("/tmp/alpha.jpg"))

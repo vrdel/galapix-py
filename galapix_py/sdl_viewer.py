@@ -449,6 +449,9 @@ class SDLViewer:
                     self.viewer.move_keyboard_selection(0, 1)
                 elif sym == sdl2.SDLK_RETURN:
                     self.viewer.toggle_keyboard_selection_image()
+                elif sym == sdl2.SDLK_n:
+                    self.viewer.zoom_to_original()
+                    self.viewer.request_redraw()
                 elif sym == sdl2.SDLK_o:
                     self._open_selected_image_window()
             elif (quit_key is None and sym == sdl2.SDLK_ESCAPE) or quit_key_matches(quit_key, sym, modifiers):

@@ -337,11 +337,15 @@ class Viewer:
         self.needs_redraw = True
 
     def zoom_to_original(self) -> None:
-        selected = self.workspace.selected_images()
-        if selected:
+        images = self.workspace.filtered_images()
+        selected = self.workspace.filtered_selected_images()
+        focused = self.keyboard_selection_image()
+        if focused is not None:
+            image = focused
+        elif selected:
             image = selected[0]
-        elif self.workspace.images:
-            image = self.workspace.images[0]
+        elif images:
+            image = images[0]
         else:
             return
         scale = 1.0 / image.placement.scale
