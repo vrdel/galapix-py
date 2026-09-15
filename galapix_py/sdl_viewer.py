@@ -111,6 +111,7 @@ class SDLViewer:
         self.context = None
         self.running = False
         self.mouse_down_pos: tuple[int, int] | None = None
+        self.middle_mouse_down_pos: tuple[int, int] | None = None
         self._last_title: str | None = None
         self._suppress_opening_search_text = False
         self._current_sort = getattr(getattr(viewer, "options", None), "sort", None)
@@ -390,12 +391,19 @@ class SDLViewer:
                 return
             if event.button.button == sdl2.SDL_BUTTON_RIGHT:
                 self.mouse_down_pos = (event.button.x, event.button.y)
+            elif event.button.button == sdl2.SDL_BUTTON_MIDDLE:
+                self.middle_mouse_down_pos = (event.button.x, event.button.y)
         elif event.type == sdl2.SDL_MOUSEMOTION:
             if getattr(self.viewer, "search_active", False):
                 return
             left_drag = bool(event.motion.state & sdl2.SDL_BUTTON_LMASK)
             right_drag = bool(event.motion.state & sdl2.SDL_BUTTON_RMASK)
             middle_drag = bool(event.motion.state & sdl2.SDL_BUTTON_MMASK)
+            if middle_drag and self.middle_mouse_down_pos is not None:
+                dx = event.motion.x - self.middle_mouse_down_pos[0]
+                dy = event.motion.y - self.middle_mouse_down_pos[1]
+                if abs(dx) > 3 or abs(dy) > 3:
+                    self.middle_mouse_down_pos = None
             if left_drag or right_drag or middle_drag:
                 drag_pan_factor = self._drag_pan_factor()
                 if middle_drag:
@@ -405,6 +413,15 @@ class SDLViewer:
                 self.viewer.state.move(event.motion.xrel * drag_pan_factor, event.motion.yrel * drag_pan_factor)
                 self.viewer.request_redraw()
         elif event.type == sdl2.SDL_MOUSEBUTTONUP:
+            if event.button.button == sdl2.SDL_BUTTON_MIDDLE:
+                down_pos = self.middle_mouse_down_pos
+                self.middle_mouse_down_pos = None
+                if not getattr(self.viewer, "search_active", False) and down_pos is not None:
+                    dx = event.button.x - down_pos[0]
+                    dy = event.button.y - down_pos[1]
+                    if abs(dx) <= 3 and abs(dy) <= 3:
+                        self._open_selected_image_window()
+                return
             if getattr(self.viewer, "search_active", False):
                 return
             if event.button.button == sdl2.SDL_BUTTON_RIGHT and self.mouse_down_pos is not None:

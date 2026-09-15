@@ -191,7 +191,7 @@ Selection and editing:
     - `Esc`: close the search box and clear the current filter
 - `Delete`: delete current selection from the workspace
 - `F5`: refresh selected images from disk / database
-- `o`: open selected image selection in a separate viewer window inheriting current view options
+- `o` or `Middle click`: open selected images in a separate viewer window inheriting current view options
 
 Layout and ordering:
 
