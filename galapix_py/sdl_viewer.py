@@ -13,6 +13,7 @@ import sdl2
 from .viewer import FrameRenderStats, Viewer
 
 APP_ID = b"galapix-py"
+FOCUS_WARMUP_SECONDS = 0.25
 
 
 def enable_vsync() -> bool:
@@ -116,6 +117,7 @@ class SDLViewer:
         self._suppress_opening_search_text = False
         self._current_sort = getattr(getattr(viewer, "options", None), "sort", None)
         self._child_viewers: list[subprocess.Popen] = []
+        self._focus_warmup_until = 0.0
 
     def _ctrl_pressed(self) -> bool:
         mods = sdl2.SDL_GetModState()
@@ -272,7 +274,7 @@ class SDLViewer:
                 delta = now - last
                 last = now
                 self.viewer.update(delta)
-                if had_event or self.viewer.needs_redraw:
+                if had_event or self.viewer.needs_redraw or now < self._focus_warmup_until:
                     stats = self.viewer.draw()
                     self._update_title()
                     sdl2.SDL_GL_SwapWindow(self.window)
@@ -430,9 +432,21 @@ class SDLViewer:
                 if abs(dx) <= 3 and abs(dy) <= 3:
                     self.viewer.select_at_screen(event.button.x, event.button.y, toggle=self._ctrl_pressed())
                 self.mouse_down_pos = None
-        elif event.type == sdl2.SDL_WINDOWEVENT and event.window.event == sdl2.SDL_WINDOWEVENT_SIZE_CHANGED:
-            self.viewer.set_viewport(event.window.data1, event.window.data2)
-            self.viewer.request_redraw()
+        elif event.type == sdl2.SDL_WINDOWEVENT:
+            if event.window.event == sdl2.SDL_WINDOWEVENT_SIZE_CHANGED:
+                self.viewer.set_viewport(event.window.data1, event.window.data2)
+                self.viewer.request_redraw()
+            elif event.window.event == sdl2.SDL_WINDOWEVENT_FOCUS_GAINED:
+                # Briefly resume rendering so the graphics driver can warm up
+                # before interaction, then return to drawing only on demand.
+                self._focus_warmup_until = time.monotonic() + FOCUS_WARMUP_SECONDS
+                self.viewer.request_redraw()
+            elif event.window.event in {
+                sdl2.SDL_WINDOWEVENT_FOCUS_LOST,
+                sdl2.SDL_WINDOWEVENT_MINIMIZED,
+                sdl2.SDL_WINDOWEVENT_HIDDEN,
+            }:
+                self._focus_warmup_until = 0.0
         elif event.type == sdl2.SDL_KEYDOWN:
             sym = event.key.keysym.sym
             modifiers = event.key.keysym.mod
