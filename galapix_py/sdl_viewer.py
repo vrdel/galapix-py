@@ -13,7 +13,7 @@ import sdl2
 from .viewer import FrameRenderStats, Viewer
 
 APP_ID = b"galapix-py"
-FOCUS_WARMUP_SECONDS = 0.25
+FOCUS_WARMUP_SECONDS = 3.0
 
 
 def enable_vsync() -> bool:
@@ -291,7 +291,8 @@ class SDLViewer:
                     if timeout_message is not None:
                         raise RuntimeError(timeout_message)
                 self._reap_child_viewers()
-                sdl2.SDL_Delay(10)
+                # Let vsync pace warm-up frames, with a small yield if unavailable.
+                sdl2.SDL_Delay(1 if time.monotonic() < self._focus_warmup_until else 10)
         finally:
             self._reap_child_viewers()
             sdl2.SDL_StopTextInput()
