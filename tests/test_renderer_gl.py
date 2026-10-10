@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 from OpenGL import GL
@@ -123,7 +124,16 @@ class RendererGLTests(unittest.TestCase):
         viewer.search_active = True
         viewer.search_query = "test"
         viewer.keyboard_selection_active = True
-        viewer.draw()
+        with patch.object(viewer, "_create_text_texture", wraps=viewer._create_text_texture) as create:
+            viewer.draw()
+            self.assertEqual(create.call_count, 3)
+            viewer.draw()
+            self.assertEqual(create.call_count, 3)
+            old_query = viewer.overlay_textures["search_query"][2].texture_id
+            viewer.search_query = "changed"
+            viewer.draw()
+            self.assertEqual(create.call_count, 4)
+            self.assertFalse(GL.glIsTexture(old_query))
         self.assertEqual(GL.glGetError(), GL.GL_NO_ERROR)
         pixels = GL.glReadPixels(0, 0, 64, 64, GL.GL_RGB, GL.GL_UNSIGNED_BYTE)
         self.assertGreater(len(set(pixels)), 1)

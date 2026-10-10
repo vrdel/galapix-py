@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+from functools import lru_cache
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -70,6 +71,7 @@ def _decode_texture_pixels(jpeg_bytes: bytes) -> tuple[np.ndarray, int, int, int
         return pixels, image.width, image.height, channels
 
 
+@lru_cache(maxsize=16)
 def _load_label_font(size: int = LABEL_FONT_SIZE) -> ImageFont.ImageFont | ImageFont.FreeTypeFont:
     for path in LABEL_FONT_CANDIDATES:
         try:
@@ -77,6 +79,12 @@ def _load_label_font(size: int = LABEL_FONT_SIZE) -> ImageFont.ImageFont | Image
         except OSError:
             continue
     return ImageFont.load_default()
+
+
+@lru_cache(maxsize=128)
+def _measure_text(text: str, font_size: int) -> tuple[int, int]:
+    left, top, right, bottom = _load_label_font(font_size).getbbox(text)
+    return max(1, right - left), max(1, bottom - top)
 
 
 def configure_texture_upload_state() -> None:
@@ -264,6 +272,7 @@ class Viewer:
         self.texture_cache = TextureCache()
         self.renderer: RectangleRenderer | None = None
         self.label_textures: dict[str, LabelTexture] = {}
+        self.overlay_textures: dict[str, tuple[str, int, LabelTexture]] = {}
         self.background_colors = [
             (0.39, 0.39, 0.39, 1.0),
             (0.25, 0.25, 0.25, 1.0),
@@ -454,12 +463,18 @@ class Viewer:
     def search_filter_text(self) -> str:
         return f'filtered={len(self.workspace.filtered_images())} search="{self.search_query}"'
 
+    def _clear_text_textures(self) -> None:
+        textures = [label.texture_id for label in self.label_textures.values()]
+        textures.extend(label.texture_id for _, _, label in self.overlay_textures.values())
+        if textures:
+            glDeleteTextures(textures)
+        self.label_textures.clear()
+        self.overlay_textures.clear()
+
     def release_gl_resources(self) -> None:
         """Release context-owned objects before SDL destroys the context."""
         self.texture_cache.clear()
-        if self.label_textures:
-            glDeleteTextures([label.texture_id for label in self.label_textures.values()])
-            self.label_textures.clear()
+        self._clear_text_textures()
         if self.renderer is not None:
             self.renderer.close()
             self.renderer = None
@@ -470,9 +485,7 @@ class Viewer:
                 image.cache.clear()
             image.visible = False
         self.texture_cache.clear()
-        if self.label_textures:
-            glDeleteTextures([label.texture_id for label in self.label_textures.values()])
-            self.label_textures.clear()
+        self._clear_text_textures()
         self.request_redraw()
 
     def print_visible_images(self) -> None:
@@ -627,6 +640,17 @@ class Viewer:
         self.label_textures[text] = label
         return label
 
+    def _get_overlay_texture(self, slot: str, text: str, font_size: int) -> LabelTexture:
+        # One entry per UI element bounds GPU memory while a query is edited.
+        cached = self.overlay_textures.get(slot)
+        if cached is not None and cached[:2] == (text, font_size):
+            return cached[2]
+        label = self._create_text_texture(text, padding_x=0, padding_y=0, font_size=font_size)
+        if cached is not None:
+            glDeleteTextures([cached[2].texture_id])
+        self.overlay_textures[slot] = (text, font_size, label)
+        return label
+
     def _create_text_texture(
         self,
         text: str,
@@ -695,19 +719,19 @@ class Viewer:
         self._draw_textured_rect(label.texture_id, label_left, label_top, label_right, label_bottom, 0.0, 0.0, u1, 1.0)
 
     def _draw_search_overlay(self) -> None:
-        title = self._create_text_texture("Search", padding_x=0, padding_y=0, font_size=SEARCH_FONT_SIZE)
-        min_title_width = self._create_text_texture("Filename contains", padding_x=0, padding_y=0, font_size=SEARCH_FONT_SIZE)
-        query = self._create_text_texture(self.search_query or " ", padding_x=0, padding_y=0, font_size=SEARCH_FONT_SIZE)
-        min_query_width = self._create_text_texture("M" * 10, padding_x=0, padding_y=0, font_size=SEARCH_FONT_SIZE)
-        min_query_height = self._create_text_texture("Mg", padding_x=0, padding_y=0, font_size=SEARCH_FONT_SIZE)
+        title = self._get_overlay_texture("search_title", "Search", SEARCH_FONT_SIZE)
+        min_title_width, _ = _measure_text("Filename contains", SEARCH_FONT_SIZE)
+        query = self._get_overlay_texture("search_query", self.search_query or " ", SEARCH_FONT_SIZE)
+        min_query_width, _ = _measure_text("M" * 10, SEARCH_FONT_SIZE)
+        _, min_query_height = _measure_text("Mg", SEARCH_FONT_SIZE)
         pad = 16.0
         gap = 10.0
         query_box_pad = 6.0
         panel_color = self.search_panel_color()
         query_box_color = self.search_query_box_color()
-        query_display_width = max(query.width, min_query_width.width)
-        query_display_height = max(query.height, min_query_height.height)
-        width = max(min_title_width.width, query_display_width + 20) + pad * 2.0
+        query_display_width = max(query.width, min_query_width)
+        query_display_height = max(query.height, min_query_height)
+        width = max(min_title_width, query_display_width + 20) + pad * 2.0
         height = (
             pad * 2.0
             + title.height
@@ -721,33 +745,24 @@ class Viewer:
         bottom = top + height
         self._draw_solid_rect(left, top, right, bottom, panel_color)
         y = top + pad
-        try:
-            self._draw_text_label(title, left + pad, y)
-        finally:
-            glDeleteTextures([title.texture_id])
+        self._draw_text_label(title, left + pad, y)
         y += title.height + gap
         query_top = y
         query_bottom = query_top + query_display_height + query_box_pad * 2.0
         self._draw_solid_rect(left + pad, query_top, right - pad, query_bottom, query_box_color)
-        try:
-            text_top = query_top + query_box_pad + (query_display_height - query.height) / 2.0
-            self._draw_text_label(query, left + pad + query_box_pad, text_top)
-            cursor_x = left + pad + query_box_pad + query.width + 2.0
-            self._draw_solid_rect(
-                cursor_x,
-                query_top + query_box_pad,
-                cursor_x + 2.0,
-                query_bottom - query_box_pad,
-                (1.0, 1.0, 1.0),
-            )
-        finally:
-            glDeleteTextures([query.texture_id])
-            glDeleteTextures([min_title_width.texture_id])
-            glDeleteTextures([min_query_width.texture_id])
-            glDeleteTextures([min_query_height.texture_id])
+        text_top = query_top + query_box_pad + (query_display_height - query.height) / 2.0
+        self._draw_text_label(query, left + pad + query_box_pad, text_top)
+        cursor_x = left + pad + query_box_pad + query.width + 2.0
+        self._draw_solid_rect(
+            cursor_x,
+            query_top + query_box_pad,
+            cursor_x + 2.0,
+            query_bottom - query_box_pad,
+            (1.0, 1.0, 1.0),
+        )
 
     def _draw_search_filter_badge(self) -> None:
-        label = self._create_text_texture(self.search_filter_text(), padding_x=0, padding_y=0, font_size=LABEL_FONT_SIZE)
+        label = self._get_overlay_texture("filter_badge", self.search_filter_text(), LABEL_FONT_SIZE)
         pad_x = 10.0
         pad_y = 7.0
         margin = 14.0
@@ -757,15 +772,12 @@ class Viewer:
         bottom = self.viewport_height - margin
         left = max(margin, right - width)
         top = max(margin, bottom - height)
-        try:
-            self._draw_solid_rect(left, top, right, bottom, self.search_panel_color())
-            self._draw_text_label(label, left + pad_x, top + pad_y)
-        finally:
-            glDeleteTextures([label.texture_id])
+        self._draw_solid_rect(left, top, right, bottom, self.search_panel_color())
+        self._draw_text_label(label, left + pad_x, top + pad_y)
 
     def _draw_keyboard_selection_badge(self) -> None:
         selected_count = len(self.workspace.filtered_selected_images())
-        label = self._create_text_texture(f"Select mode selected={selected_count}", padding_x=0, padding_y=0, font_size=LABEL_FONT_SIZE)
+        label = self._get_overlay_texture("selection_badge", f"Select mode selected={selected_count}", LABEL_FONT_SIZE)
         pad_x = 10.0
         pad_y = 7.0
         margin = 14.0
@@ -773,11 +785,8 @@ class Viewer:
         bottom = self.viewport_height - margin
         top = max(margin, bottom - label.height - pad_y * 2.0)
         right = left + label.width + pad_x * 2.0
-        try:
-            self._draw_solid_rect(left, top, right, bottom, self.search_panel_color())
-            self._draw_text_label(label, left + pad_x, top + pad_y)
-        finally:
-            glDeleteTextures([label.texture_id])
+        self._draw_solid_rect(left, top, right, bottom, self.search_panel_color())
+        self._draw_text_label(label, left + pad_x, top + pad_y)
 
     def _draw_text_label(self, label: LabelTexture, left: float, top: float) -> None:
         self._draw_textured_rect(label.texture_id, left, top, left + label.width, top + label.height)

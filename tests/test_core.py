@@ -2538,7 +2538,7 @@ class GalapixPyCoreTests(unittest.TestCase):
         create_text.assert_called_once_with("Select mode selected=1", padding_x=0, padding_y=0, font_size=14)
         draw_rect.assert_called_once_with(14.0, 252.0, 184.0, 286.0, viewer.search_panel_color())
         draw_label.assert_called_once_with(label, 24.0, 259.0)
-        delete_textures.assert_called_once_with([98])
+        delete_textures.assert_not_called()
 
     def test_selected_placeholder_image_draws_green_tint(self) -> None:
         image = Image("/tmp/alpha.jpg")
@@ -2702,7 +2702,7 @@ class GalapixPyCoreTests(unittest.TestCase):
         create_text.assert_called_once_with('filtered=1 search="cat"', padding_x=0, padding_y=0, font_size=14)
         draw_rect.assert_called_once_with(246.0, 252.0, 386.0, 286.0, viewer.search_panel_color())
         draw_label.assert_called_once_with(label, 256.0, 259.0)
-        delete_textures.assert_called_once_with([99])
+        delete_textures.assert_not_called()
 
     def test_overlay_label_text_uses_basename_and_truncates(self) -> None:
         self.assertEqual(overlay_label_text("/tmp/example.jpg"), "example.jpg")
