@@ -13,12 +13,10 @@ from OpenGL.GL import (
     GL_CLAMP_TO_EDGE,
     GL_COLOR_BUFFER_BIT,
     GL_LINEAR,
-    GL_LINE_LOOP,
-    GL_LINES,
-    GL_LUMINANCE,
-    GL_MODELVIEW,
-    GL_PROJECTION,
-    GL_QUADS,
+    GL_RED,
+    GL_R8,
+    GL_TEXTURE_SWIZZLE_G,
+    GL_TEXTURE_SWIZZLE_B,
     GL_RGB,
     GL_RGBA,
     GL_TEXTURE_2D,
@@ -28,27 +26,17 @@ from OpenGL.GL import (
     GL_TEXTURE_WRAP_T,
     GL_UNSIGNED_BYTE,
     GL_UNPACK_ALIGNMENT,
-    glBegin,
     glBindTexture,
     glBlendFunc,
     glClear,
     glClearColor,
-    glColor3f,
-    glColor4f,
     glDeleteTextures,
-    glDisable,
     glEnable,
-    glEnd,
     glGenTextures,
-    glLoadIdentity,
-    glMatrixMode,
-    glOrtho,
     GL_ONE_MINUS_SRC_ALPHA,
     GL_SRC_ALPHA,
-    glTexCoord2f,
     glTexImage2D,
     glTexParameteri,
-    glVertex2f,
     glViewport,
     glPixelStorei,
 )
@@ -57,6 +45,7 @@ from .database_thread import DatabaseThread
 from .image import Image
 from .models import ViewerOptions
 from .providers import DatabaseTileProvider
+from .renderer import RectangleRenderer
 from .viewer_state import ViewerState
 from .workspace import Workspace
 
@@ -119,11 +108,15 @@ class TextureCache:
         glBindTexture(GL_TEXTURE_2D, texture)
         configure_texture_upload_state()
         memory, width, height, channels = _decode_texture_pixels(jpeg_bytes)
-        fmt = {1: GL_LUMINANCE, 3: GL_RGB, 4: GL_RGBA}.get(channels, GL_RGB)
+        fmt = {1: GL_RED, 3: GL_RGB, 4: GL_RGBA}[channels]
+        if channels == 1:
+            # Core profiles replace luminance textures with a red channel swizzle.
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_G, GL_RED)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, GL_RED)
         glTexImage2D(
             GL_TEXTURE_2D,
             0,
-            fmt,
+            GL_R8 if channels == 1 else fmt,
             width,
             height,
             0,
@@ -269,6 +262,7 @@ class Viewer:
         self.db_thread = db_thread
         self.state = ViewerState()
         self.texture_cache = TextureCache()
+        self.renderer: RectangleRenderer | None = None
         self.label_textures: dict[str, LabelTexture] = {}
         self.background_colors = [
             (0.39, 0.39, 0.39, 1.0),
@@ -309,13 +303,9 @@ class Viewer:
         )
 
     def set_viewport(self, width: int, height: int) -> None:
-        self.viewport_width = width
-        self.viewport_height = height
-        glViewport(0, 0, width, height)
-        glMatrixMode(GL_PROJECTION)
-        glLoadIdentity()
-        glOrtho(0, width, height, 0, -1, 1)
-        glMatrixMode(GL_MODELVIEW)
+        self.viewport_width = max(1, width)
+        self.viewport_height = max(1, height)
+        glViewport(0, 0, self.viewport_width, self.viewport_height)
         self.needs_redraw = True
 
     def zoom_home(self) -> None:
@@ -378,8 +368,9 @@ class Viewer:
         self.texture_cache.begin_frame()
         glClearColor(*self.background_colors[self.background_index])
         glClear(GL_COLOR_BUFFER_BIT)
-        glLoadIdentity()
-        glEnable(GL_TEXTURE_2D)
+        if self.renderer is None:
+            self.renderer = RectangleRenderer()
+        self.renderer.begin_frame(self.viewport_width, self.viewport_height)
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         clip = self.state.world_rect(self.viewport_width, self.viewport_height)
@@ -403,6 +394,7 @@ class Viewer:
             self._draw_search_filter_badge()
         if self.keyboard_selection_active:
             self._draw_keyboard_selection_badge()
+        self.renderer.end_frame()
         self.texture_cache.end_frame()
         self.needs_redraw = False
         self.last_frame_stats = stats
@@ -461,6 +453,16 @@ class Viewer:
 
     def search_filter_text(self) -> str:
         return f'filtered={len(self.workspace.filtered_images())} search="{self.search_query}"'
+
+    def release_gl_resources(self) -> None:
+        """Release context-owned objects before SDL destroys the context."""
+        self.texture_cache.clear()
+        if self.label_textures:
+            glDeleteTextures([label.texture_id for label in self.label_textures.values()])
+            self.label_textures.clear()
+        if self.renderer is not None:
+            self.renderer.close()
+            self.renderer = None
 
     def clear_all_caches(self) -> None:
         for image in self.workspace.images:
@@ -667,16 +669,7 @@ class Viewer:
         return LabelTexture(texture, width, height)
 
     def _draw_solid_rect(self, left: float, top: float, right: float, bottom: float, color: tuple[float, float, float]) -> None:
-        glDisable(GL_TEXTURE_2D)
-        glColor3f(*color)
-        glBegin(GL_QUADS)
-        glVertex2f(left, top)
-        glVertex2f(right, top)
-        glVertex2f(right, bottom)
-        glVertex2f(left, bottom)
-        glEnd()
-        glEnable(GL_TEXTURE_2D)
-        glColor3f(1.0, 1.0, 1.0)
+        self.renderer.draw(left, top, right, bottom, color=(*color, 1.0))
 
     def _draw_tinted_rect(
         self,
@@ -686,16 +679,7 @@ class Viewer:
         bottom: float,
         color: tuple[float, float, float, float],
     ) -> None:
-        glDisable(GL_TEXTURE_2D)
-        glColor4f(*color)
-        glBegin(GL_QUADS)
-        glVertex2f(left, top)
-        glVertex2f(right, top)
-        glVertex2f(right, bottom)
-        glVertex2f(left, bottom)
-        glEnd()
-        glEnable(GL_TEXTURE_2D)
-        glColor4f(1.0, 1.0, 1.0, 1.0)
+        self.renderer.draw(left, top, right, bottom, color=color)
 
     def _draw_filename_overlay(self, image: Image) -> None:
         left, top, right, _ = image.rect()
@@ -708,9 +692,7 @@ class Viewer:
         label_left, label_top, label_right, label_bottom = rect
         self._draw_solid_rect(label_left, label_top, label_right, label_bottom, (0.0, 0.0, 0.0))
         u1 = (label_right - label_left) / label.width
-        glColor4f(1.0, 1.0, 1.0, 1.0)
         self._draw_textured_rect(label.texture_id, label_left, label_top, label_right, label_bottom, 0.0, 0.0, u1, 1.0)
-        glColor3f(1.0, 1.0, 1.0)
 
     def _draw_search_overlay(self) -> None:
         title = self._create_text_texture("Search", padding_x=0, padding_y=0, font_size=SEARCH_FONT_SIZE)
@@ -798,9 +780,7 @@ class Viewer:
             glDeleteTextures([label.texture_id])
 
     def _draw_text_label(self, label: LabelTexture, left: float, top: float) -> None:
-        glColor4f(1.0, 1.0, 1.0, 1.0)
         self._draw_textured_rect(label.texture_id, left, top, left + label.width, top + label.height)
-        glColor3f(1.0, 1.0, 1.0)
 
     def _draw_textured_rect(
         self,
@@ -814,29 +794,10 @@ class Viewer:
         u1: float = 1.0,
         v1: float = 1.0,
     ) -> None:
-        glBindTexture(GL_TEXTURE_2D, texture)
-        glBegin(GL_QUADS)
-        glTexCoord2f(u0, v0)
-        glVertex2f(left, top)
-        glTexCoord2f(u1, v0)
-        glVertex2f(right, top)
-        glTexCoord2f(u1, v1)
-        glVertex2f(right, bottom)
-        glTexCoord2f(u0, v1)
-        glVertex2f(left, bottom)
-        glEnd()
+        self.renderer.draw(left, top, right, bottom, texture=texture, uv=(u0, v0, u1, v1))
 
     def _draw_outline(self, left: float, top: float, right: float, bottom: float, color: tuple[float, float, float]) -> None:
-        glDisable(GL_TEXTURE_2D)
-        glColor3f(*color)
-        glBegin(GL_LINE_LOOP)
-        glVertex2f(left, top)
-        glVertex2f(right, top)
-        glVertex2f(right, bottom)
-        glVertex2f(left, bottom)
-        glEnd()
-        glEnable(GL_TEXTURE_2D)
-        glColor3f(1.0, 1.0, 1.0)
+        self.renderer.draw(left, top, right, bottom, color=(*color, 1.0), outline=True)
 
     def select_at_screen(self, screen_x: float, screen_y: float, toggle: bool = False) -> None:
         world_x, world_y = self.state.screen_to_world(screen_x, screen_y)

@@ -3,7 +3,7 @@
 Python port of `galapix` built around:
 
 - `Pillow` for image decode, scaling, tile generation, and label rasterization
-- `PyOpenGL` for textured tile rendering
+- `PyOpenGL` for OpenGL 3.3 core rendering with GLSL shaders and a reusable vertex buffer
 - `PySDL2` for windowing and input
 - `sqlite3` for persistent file and tile caches
 
@@ -32,6 +32,10 @@ Notable differences in the current implementation:
 - image decode and scaling use `Pillow`
 - viewer interaction state is split into `Viewer` and `ViewerState`
 - the viewer now includes a live filename search overlay opened with `/`
+
+The viewer requires a graphics driver supporting OpenGL 3.3 core or newer. Tiles,
+text, overlays, and selection borders share a static quad VBO/VAO; shader uniforms
+set screen coordinates, texture cropping, and color without per-frame vertex uploads.
 
 ## Commands
 

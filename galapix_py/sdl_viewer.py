@@ -230,9 +230,36 @@ class SDLViewer:
 
     def run(self) -> None:
         configure_app_identity_hint()
-        sdl2.SDL_Init(sdl2.SDL_INIT_VIDEO)
-        sdl2.SDL_GL_SetAttribute(sdl2.SDL_GL_CONTEXT_MAJOR_VERSION, 2)
-        sdl2.SDL_GL_SetAttribute(sdl2.SDL_GL_CONTEXT_MINOR_VERSION, 1)
+        if sdl2.SDL_Init(sdl2.SDL_INIT_VIDEO) != 0:
+            raise RuntimeError(f"SDL_Init failed: {sdl2.SDL_GetError().decode()}")
+        try:
+            self._run_with_video()
+        finally:
+            try:
+                if self.context:
+                    self.viewer.release_gl_resources()
+            finally:
+                self._reap_child_viewers()
+                sdl2.SDL_StopTextInput()
+                if self.context:
+                    sdl2.SDL_GL_DeleteContext(self.context)
+                    self.context = None
+                if self.window:
+                    sdl2.SDL_DestroyWindow(self.window)
+                    self.window = None
+                sdl2.SDL_Quit()
+
+    def _run_with_video(self) -> None:
+        attributes = (
+            (sdl2.SDL_GL_CONTEXT_MAJOR_VERSION, 3),
+            (sdl2.SDL_GL_CONTEXT_MINOR_VERSION, 3),
+            (sdl2.SDL_GL_CONTEXT_PROFILE_MASK, sdl2.SDL_GL_CONTEXT_PROFILE_CORE),
+            (sdl2.SDL_GL_CONTEXT_FLAGS, sdl2.SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG),
+            (sdl2.SDL_GL_DOUBLEBUFFER, 1),
+        )
+        for attribute, value in attributes:
+            if sdl2.SDL_GL_SetAttribute(attribute, value) != 0:
+                raise RuntimeError(f"OpenGL 3.3 setup failed: {sdl2.SDL_GetError().decode()}")
         flags = sdl2.SDL_WINDOW_OPENGL | sdl2.SDL_WINDOW_RESIZABLE | sdl2.SDL_WINDOW_HIDDEN
         if self.fullscreen:
             flags |= sdl2.SDL_WINDOW_FULLSCREEN_DESKTOP
@@ -249,7 +276,7 @@ class SDLViewer:
         set_x11_window_class(self.window)
         self.context = sdl2.SDL_GL_CreateContext(self.window)
         if not self.context:
-            raise RuntimeError(f"SDL_GL_CreateContext failed: {sdl2.SDL_GetError().decode()}")
+            raise RuntimeError(f"OpenGL 3.3 core context creation failed: {sdl2.SDL_GetError().decode()}")
         if not enable_vsync():
             print(
                 f"warning: could not enable OpenGL vsync: {sdl2.SDL_GetError().decode()}",
@@ -263,42 +290,35 @@ class SDLViewer:
         last = time.monotonic()
         started = last
         validator = LiveRenderValidation(self.validation_timeout) if self.validate_render else None
-        try:
-            while self.running:
-                had_event = False
-                while sdl2.SDL_PollEvent(event):
-                    had_event = True
-                    self._process_event(event)
-                self._process_keyboard_state()
-                now = time.monotonic()
-                delta = now - last
-                last = now
-                self.viewer.update(delta)
-                if had_event or self.viewer.needs_redraw or now < self._focus_warmup_until:
-                    stats = self.viewer.draw()
-                    self._update_title()
-                    sdl2.SDL_GL_SwapWindow(self.window)
-                    if validator is not None:
-                        success, message = validator.observe(now - started, stats)
-                        if message is not None:
-                            if success:
-                                print(message)
-                                self.running = False
-                            else:
-                                raise RuntimeError(message)
+        while self.running:
+            had_event = False
+            while sdl2.SDL_PollEvent(event):
+                had_event = True
+                self._process_event(event)
+            self._process_keyboard_state()
+            now = time.monotonic()
+            delta = now - last
+            last = now
+            self.viewer.update(delta)
+            if had_event or self.viewer.needs_redraw or now < self._focus_warmup_until:
+                stats = self.viewer.draw()
+                self._update_title()
+                sdl2.SDL_GL_SwapWindow(self.window)
                 if validator is not None:
-                    timeout_message = validator.timeout_message(now - started)
-                    if timeout_message is not None:
-                        raise RuntimeError(timeout_message)
-                self._reap_child_viewers()
-                # Let vsync pace warm-up frames, with a small yield if unavailable.
-                sdl2.SDL_Delay(1 if time.monotonic() < self._focus_warmup_until else 10)
-        finally:
+                    success, message = validator.observe(now - started, stats)
+                    if message is not None:
+                        if success:
+                            print(message)
+                            self.running = False
+                        else:
+                            raise RuntimeError(message)
+            if validator is not None:
+                timeout_message = validator.timeout_message(now - started)
+                if timeout_message is not None:
+                    raise RuntimeError(timeout_message)
             self._reap_child_viewers()
-            sdl2.SDL_StopTextInput()
-            sdl2.SDL_GL_DeleteContext(self.context)
-            sdl2.SDL_DestroyWindow(self.window)
-            sdl2.SDL_Quit()
+            # Let vsync pace warm-up frames, with a small yield if unavailable.
+            sdl2.SDL_Delay(1 if time.monotonic() < self._focus_warmup_until else 10)
 
     def _process_keyboard_state(self) -> None:
         if getattr(self.viewer, "search_active", False):
