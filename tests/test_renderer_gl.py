@@ -1,0 +1,136 @@
+"""Opt-in pixel tests against a real OpenGL core context.
+
+On Linux without a display:
+SDL_VIDEODRIVER=offscreen PYOPENGL_PLATFORM=egl GALAPIX_TEST_GL=1 \
+    python -m unittest discover -s tests -p test_renderer_gl.py -v
+"""
+
+from io import BytesIO
+import os
+from pathlib import Path
+from types import SimpleNamespace
+import unittest
+
+import numpy as np
+from OpenGL import GL
+from PIL import Image as PILImage
+import sdl2
+
+from galapix_py.models import ViewerOptions
+from galapix_py.renderer import RectangleRenderer
+from galapix_py.viewer import TextureCache, Viewer
+from galapix_py.workspace import Workspace
+
+
+@unittest.skipUnless(os.environ.get("GALAPIX_TEST_GL") == "1", "set GALAPIX_TEST_GL=1 for real GL tests")
+class RendererGLTests(unittest.TestCase):
+    def setUp(self):
+        self.assertEqual(sdl2.SDL_Init(sdl2.SDL_INIT_VIDEO), 0, sdl2.SDL_GetError())
+        self.addCleanup(sdl2.SDL_Quit)
+        for attribute, value in (
+            (sdl2.SDL_GL_CONTEXT_MAJOR_VERSION, 3),
+            (sdl2.SDL_GL_CONTEXT_MINOR_VERSION, 3),
+            (sdl2.SDL_GL_CONTEXT_PROFILE_MASK, sdl2.SDL_GL_CONTEXT_PROFILE_CORE),
+            (sdl2.SDL_GL_CONTEXT_FLAGS, sdl2.SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG),
+        ):
+            self.assertEqual(sdl2.SDL_GL_SetAttribute(attribute, value), 0)
+        window = sdl2.SDL_CreateWindow(b"renderer test", 0, 0, 64, 64,
+                                       sdl2.SDL_WINDOW_OPENGL | sdl2.SDL_WINDOW_HIDDEN)
+        self.assertTrue(window, sdl2.SDL_GetError())
+        self.addCleanup(sdl2.SDL_DestroyWindow, window)
+        context = sdl2.SDL_GL_CreateContext(window)
+        self.assertTrue(context, sdl2.SDL_GetError())
+        self.addCleanup(sdl2.SDL_GL_DeleteContext, context)
+        self.renderer = RectangleRenderer()
+        self.addCleanup(self.renderer.close)
+        self.cache = TextureCache()
+        self.addCleanup(self.cache.clear)
+        GL.glViewport(0, 0, 64, 64)
+        GL.glClearColor(0, 0, 0, 1)
+        GL.glClear(GL.GL_COLOR_BUFFER_BIT)
+        GL.glEnable(GL.GL_BLEND)
+        GL.glBlendFunc(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA)
+        self.renderer.begin_frame(64, 64)
+
+    def pixel(self, x, y):
+        # The viewer uses a top-left origin, unlike glReadPixels.
+        return tuple(GL.glReadPixels(x, 63 - y, 1, 1, GL.GL_RGB, GL.GL_UNSIGNED_BYTE))
+
+    def texture(self, image):
+        data = BytesIO()
+        image.save(data, format="PNG")
+        source = SimpleNamespace(url=str(len(self.cache.textures)))
+        return self.cache.get_or_create(source, 0, 0, 0, data.getvalue())
+
+    def test_coordinates_and_resize(self):
+        self.renderer.draw(0, 0, 32, 32, color=(1, 0, 0, 1))
+        self.assertEqual(self.pixel(8, 8), (255, 0, 0))
+        self.assertEqual(self.pixel(8, 56), (0, 0, 0))
+        self.assertEqual(self.pixel(56, 8), (0, 0, 0))
+        self.renderer.begin_frame(128, 128)
+        self.renderer.draw(64, 64, 128, 128, color=(0, 1, 0, 1))
+        self.assertEqual(self.pixel(48, 48), (0, 255, 0))
+        self.renderer.begin_frame(0, 0)
+        self.assertEqual(GL.glGetError(), GL.GL_NO_ERROR)
+
+    def test_texture_orientation_and_cropped_parent_uv(self):
+        pixels = np.zeros((8, 8, 3), dtype=np.uint8)
+        pixels[:4, :4] = (255, 0, 0)
+        pixels[:4, 4:] = (0, 255, 0)
+        pixels[4:, :4] = (0, 0, 255)
+        pixels[4:, 4:] = (255, 255, 0)
+        texture = self.texture(PILImage.fromarray(pixels))
+        self.renderer.draw(0, 0, 64, 64, texture=texture)
+        for point, color in (((8, 8), (255, 0, 0)), ((56, 8), (0, 255, 0)),
+                             ((8, 56), (0, 0, 255)), ((56, 56), (255, 255, 0))):
+            self.assertEqual(self.pixel(*point), color)
+        self.renderer.draw(0, 0, 64, 64, texture=texture, uv=(0.5, 0, 1, 0.5))
+        self.assertEqual(self.pixel(32, 32), (0, 255, 0))
+
+    def test_grayscale_and_odd_width_rgb_uploads(self):
+        for mode, color, expected in (("L", 137, (137, 137, 137)),
+                                      ("RGB", (17, 99, 231), (17, 99, 231))):
+            with self.subTest(mode=mode):
+                texture = self.texture(PILImage.new(mode, (3, 5), color))
+                self.renderer.draw(0, 0, 64, 64, texture=texture)
+                self.assertEqual(self.pixel(32, 32), expected)
+
+    def test_alpha_and_solid_draw_after_texture(self):
+        self.renderer.draw(0, 0, 64, 64, color=(0, 0, 1, 1))
+        texture = self.texture(PILImage.new("RGBA", (3, 3), (255, 0, 0, 128)))
+        self.renderer.draw(0, 0, 64, 64, texture=texture)
+        self.assertEqual(self.pixel(32, 32), (128, 0, 127))
+        self.renderer.draw(0, 0, 64, 64, color=(0, 1, 0, 0.5))
+        for actual, expected in zip(self.pixel(32, 32), (64, 128, 63)):
+            self.assertLessEqual(abs(actual - expected), 1)
+
+    def test_outline_and_resource_deletion(self):
+        self.renderer.draw(8.5, 8.5, 55.5, 55.5, color=(1, 1, 1, 1), outline=True)
+        self.assertEqual(self.pixel(8, 32), (255, 255, 255))
+        self.assertEqual(self.pixel(32, 32), (0, 0, 0))
+        self.renderer.end_frame()
+        program, vao, vbo = self.renderer.program, self.renderer.vao, self.renderer.vbo
+        self.renderer.close()
+        self.renderer.close()
+        self.assertFalse(GL.glIsProgram(program))
+        self.assertFalse(GL.glIsVertexArray(vao))
+        self.assertFalse(GL.glIsBuffer(vbo))
+
+    def test_viewer_text_and_search_overlays(self):
+        viewer = Viewer(ViewerOptions(database=Path("/tmp/unused-gl-test")), Workspace(), None)
+        self.addCleanup(viewer.release_gl_resources)
+        viewer.set_viewport(64, 64)
+        viewer.search_active = True
+        viewer.search_query = "test"
+        viewer.keyboard_selection_active = True
+        viewer.draw()
+        self.assertEqual(GL.glGetError(), GL.GL_NO_ERROR)
+        pixels = GL.glReadPixels(0, 0, 64, 64, GL.GL_RGB, GL.GL_UNSIGNED_BYTE)
+        self.assertGreater(len(set(pixels)), 1)
+        viewer.release_gl_resources()
+        viewer.draw()  # Resources can be recreated in the current context.
+        self.assertEqual(GL.glGetError(), GL.GL_NO_ERROR)
+
+
+if __name__ == "__main__":
+    unittest.main()
