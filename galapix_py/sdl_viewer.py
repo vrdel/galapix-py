@@ -305,6 +305,8 @@ class SDLViewer:
                 stats = self.viewer.draw()
                 self._update_title()
                 sdl2.SDL_GL_SwapWindow(self.window)
+                if self.viewer.profiler is not None:
+                    self.viewer.profiler.report()
                 if validator is not None:
                     success, message = validator.observe(now - started, stats)
                     if message is not None:

@@ -19,6 +19,7 @@ import sdl2
 
 from galapix_py.models import ViewerOptions
 from galapix_py.renderer import RectangleRenderer
+from galapix_py.render_profile import RenderProfiler
 from galapix_py.viewer import TextureCache, Viewer
 from galapix_py.workspace import Workspace
 
@@ -150,6 +151,41 @@ class RendererGLTests(unittest.TestCase):
         self.assertEqual(self.pixel(60, 60), (0, 255, 0))
         self.assertEqual(self.pixel(24, 24), (0, 0, 0))
         self.assertEqual(viewer.state.screen_to_world(16, 16), (16, 16))
+
+    def test_opt_in_profiling_counts_draws_uploads_and_gpu_samples(self):
+        viewer = Viewer(ViewerOptions(database=Path("/tmp/unused-gl-test"), profile_render=True), Workspace(), None)
+        self.addCleanup(viewer.release_gl_resources)
+        viewer.set_viewport(64, 64)
+        viewer.search_active = True
+        for _ in range(3):
+            viewer.draw()
+            # Only the test waits; normal profiling always polls availability.
+            GL.glFinish()
+        totals = viewer.profiler.totals
+        self.assertEqual(totals.frames, 3)
+        self.assertEqual(totals.uploads, 2)
+        self.assertEqual(totals.draw_calls, 15)
+        self.assertEqual(totals.textured_draws, 6)
+        self.assertGreaterEqual(totals.gpu_samples, 2)
+        self.assertGreater(totals.cpu_ms, 0)
+        self.assertGreater(totals.upload_bytes, 0)
+        self.assertEqual(GL.glGetError(), GL.GL_NO_ERROR)
+
+    def test_default_rendering_does_not_allocate_timer_queries(self):
+        viewer = Viewer(ViewerOptions(database=Path("/tmp/unused-gl-test")), Workspace(), None)
+        self.addCleanup(viewer.release_gl_resources)
+        viewer.set_viewport(64, 64)
+        with patch("galapix_py.render_profile.GL.glGenQueries") as queries:
+            viewer.draw()
+            queries.assert_not_called()
+
+    def test_profiling_counts_tile_uploads_only_on_cache_miss(self):
+        self.cache.profiler = RenderProfiler()
+        texture = self.texture(PILImage.new("RGB", (3, 5), (12, 34, 56)))
+        cached = self.cache.get_or_create(SimpleNamespace(url="0"), 0, 0, 0, b"unused cached data")
+        self.assertEqual(cached, texture)
+        self.assertEqual(self.cache.profiler.totals.uploads, 1)
+        self.assertEqual(self.cache.profiler.totals.upload_bytes, 45)
 
 
 if __name__ == "__main__":

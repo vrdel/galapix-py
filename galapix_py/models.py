@@ -63,6 +63,7 @@ class ViewerOptions:
     case_insensitive_sort: bool = False
     show_filenames: bool = False
     temp_cache: bool = False
+    profile_render: bool = False
     validate_render: bool = False
     validation_timeout: float = 5.0
     quit_key: str | None = None

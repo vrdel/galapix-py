@@ -12,6 +12,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-t", "--threads", type=int, default=4)
     parser.add_argument("-p", "--pattern", action="append", default=[])
     parser.add_argument("--ignore-pattern-case", action="store_true")
+    parser.add_argument("--profile-render", action="store_true", help="report CPU/GPU rendering time, draw calls and texture uploads")
     parser.add_argument("--validate-render", action="store_true")
     parser.add_argument("--validation-timeout", type=float, default=5.0)
 
@@ -119,6 +120,7 @@ def main() -> int:
         case_insensitive_sort=getattr(args, "case_insensitive_sort", False),
         show_filenames=getattr(args, "show_filenames", False),
         temp_cache=getattr(args, "temp_cache", False),
+        profile_render=args.profile_render,
         validate_render=args.validate_render,
         validation_timeout=args.validation_timeout,
         quit_key=getattr(args, "quit_key", None),

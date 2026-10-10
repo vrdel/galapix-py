@@ -5,6 +5,7 @@ from functools import lru_cache
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
+from time import perf_counter
 
 import numpy as np
 from PIL import Image as PILImage
@@ -47,6 +48,7 @@ from .image import Image
 from .models import ViewerOptions
 from .providers import DatabaseTileProvider
 from .renderer import RectangleRenderer
+from .render_profile import RenderProfiler
 from .viewer_state import ViewerState
 from .workspace import Workspace
 
@@ -101,6 +103,7 @@ class TextureCache:
     idle_frames: dict[tuple[str, int, int, int], int] = field(default_factory=dict)
     live_keys: set[tuple[str, int, int, int]] = field(default_factory=set)
     max_idle_frames: int = 120
+    profiler: RenderProfiler | None = None
 
     def begin_frame(self) -> None:
         self.live_keys.clear()
@@ -112,6 +115,7 @@ class TextureCache:
             self.live_keys.add(key)
             self.idle_frames[key] = 0
             return texture
+        upload_started = perf_counter() if self.profiler is not None else 0.0
         texture = int(glGenTextures(1))
         glBindTexture(GL_TEXTURE_2D, texture)
         configure_texture_upload_state()
@@ -132,6 +136,8 @@ class TextureCache:
             GL_UNSIGNED_BYTE,
             memory,
         )
+        if self.profiler is not None:
+            self.profiler.record_upload(memory.nbytes, upload_started)
         self.textures[key] = texture
         self.idle_frames[key] = 0
         self.live_keys.add(key)
@@ -269,7 +275,8 @@ class Viewer:
         self.workspace = workspace
         self.db_thread = db_thread
         self.state = ViewerState()
-        self.texture_cache = TextureCache()
+        self.profiler = RenderProfiler() if options.profile_render else None
+        self.texture_cache = TextureCache(profiler=self.profiler)
         self.renderer: RectangleRenderer | None = None
         self.label_textures: dict[str, LabelTexture] = {}
         self.overlay_textures: dict[str, tuple[str, int, LabelTexture]] = {}
@@ -381,12 +388,22 @@ class Viewer:
             self.needs_redraw = True
 
     def draw(self) -> FrameRenderStats:
+        if self.renderer is None:
+            self.renderer = RectangleRenderer(self.profiler)
+        if self.profiler is not None:
+            self.profiler.begin_frame()
+        try:
+            return self._draw_frame()
+        finally:
+            self.renderer.end_frame()
+            if self.profiler is not None:
+                self.profiler.end_frame()
+
+    def _draw_frame(self) -> FrameRenderStats:
         stats = FrameRenderStats()
         self.texture_cache.begin_frame()
         glClearColor(*self.background_colors[self.background_index])
         glClear(GL_COLOR_BUFFER_BIT)
-        if self.renderer is None:
-            self.renderer = RectangleRenderer()
         self.renderer.begin_frame(self.viewport_width, self.viewport_height)
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
@@ -406,12 +423,11 @@ class Viewer:
                 image.on_enter_screen()
             self._draw_image(image, stats)
         if self.search_active:
-            self._draw_search_overlay()
+            self._draw_overlay(self._draw_search_overlay)
         elif self.workspace.has_active_search():
-            self._draw_search_filter_badge()
+            self._draw_overlay(self._draw_search_filter_badge)
         if self.keyboard_selection_active:
-            self._draw_keyboard_selection_badge()
-        self.renderer.end_frame()
+            self._draw_overlay(self._draw_keyboard_selection_badge)
         self.texture_cache.end_frame()
         self.needs_redraw = False
         self.last_frame_stats = stats
@@ -481,11 +497,17 @@ class Viewer:
 
     def release_gl_resources(self) -> None:
         """Release context-owned objects before SDL destroys the context."""
-        self.texture_cache.clear()
-        self._clear_text_textures()
-        if self.renderer is not None:
-            self.renderer.close()
-            self.renderer = None
+        try:
+            if self.profiler is not None:
+                self.profiler.report(force=True)
+        finally:
+            if self.profiler is not None:
+                self.profiler.close()
+            self.texture_cache.clear()
+            self._clear_text_textures()
+            if self.renderer is not None:
+                self.renderer.close()
+                self.renderer = None
 
     def clear_all_caches(self) -> None:
         for image in self.workspace.images:
@@ -629,6 +651,7 @@ class Viewer:
         label = self.label_textures.get(text)
         if label is not None:
             return label
+        upload_started = perf_counter() if self.profiler is not None else 0.0
         texture = int(glGenTextures(1))
         glBindTexture(GL_TEXTURE_2D, texture)
         configure_texture_upload_state()
@@ -644,6 +667,8 @@ class Viewer:
             GL_UNSIGNED_BYTE,
             rgba,
         )
+        if self.profiler is not None:
+            self.profiler.record_upload(rgba.nbytes, upload_started)
         label = LabelTexture(texture, width, height)
         self.label_textures[text] = label
         return label
@@ -666,6 +691,7 @@ class Viewer:
         padding_y: int = 4,
         font_size: int = LABEL_FONT_SIZE,
     ) -> LabelTexture:
+        upload_started = perf_counter() if self.profiler is not None else 0.0
         texture = int(glGenTextures(1))
         glBindTexture(GL_TEXTURE_2D, texture)
         configure_texture_upload_state()
@@ -698,6 +724,8 @@ class Viewer:
             GL_UNSIGNED_BYTE,
             rgba,
         )
+        if self.profiler is not None:
+            self.profiler.record_upload(rgba.nbytes, upload_started)
         return LabelTexture(texture, width, height)
 
     def _draw_solid_rect(self, left: float, top: float, right: float, bottom: float, color: tuple[float, float, float]) -> None:
@@ -712,6 +740,12 @@ class Viewer:
         color: tuple[float, float, float, float],
     ) -> None:
         self.renderer.draw(left, top, right, bottom, color=color)
+
+    def _draw_overlay(self, draw, *args) -> None:
+        started = perf_counter() if self.profiler is not None else 0.0
+        draw(*args)
+        if self.profiler is not None:
+            self.profiler.totals.overlay_cpu_ms += (perf_counter() - started) * 1000
 
     def _draw_filename_overlay(self, image: Image) -> None:
         left, top, right, _ = image.rect()
@@ -1038,4 +1072,4 @@ class Viewer:
             self._draw_tinted_rect(left, top, right, bottom, (1.0, 0.85, 0.0, 0.24))
             self._draw_outline(left, top, right, bottom, self.keyboard_selection_outline_color())
         if self.options.show_filenames:
-            self._draw_filename_overlay(image)
+            self._draw_overlay(self._draw_filename_overlay, image)

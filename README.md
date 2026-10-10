@@ -155,6 +155,27 @@ first textured frame:
 .uv-venv/bin/python -m galapix_py.cli --validate-render view /path/to/image.jpg
 ```
 
+To profile rendering while panning and zooming:
+
+```bash
+galapix-view --profile-render /path/to/images
+# Equivalent subcommand form (the flag goes before "view"):
+galapix-py --profile-render view /path/to/images
+```
+
+Profiling writes cumulative statistics to stderr at most once per second while
+rendering, plus a final report on exit. It reports mean/maximum CPU render time,
+mean GPU elapsed time and completed GPU sample count, draw calls per frame,
+texture upload count/bytes, and CPU time spent preparing/uploading textures and submitting overlays.
+CPU render time excludes shader setup, event processing and
+buffer swapping/vsync; the first frames still include cache warm-up. Upload time
+includes image decoding or text rasterization. Upload and overlay times are
+parts of render time and can overlap each other, so they should not be added.
+GPU elapsed time is measured with asynchronous timestamp pairs and can include
+gaps while the CPU submits commands; it is not GPU utilization. Results may trail
+CPU frames, and samples are skipped when all four query pairs are
+pending. Profiling does not force additional frames or wait for GPU results.
+
 Typical prepare run:
 
 ```bash

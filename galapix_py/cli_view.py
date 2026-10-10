@@ -38,6 +38,7 @@ def main() -> int:
     parser.add_argument("-t", "--threads", type=int, default=4)
     parser.add_argument("-p", "--pattern", action="append", default=[])
     parser.add_argument("--ignore-pattern-case", action="store_true")
+    parser.add_argument("--profile-render", action="store_true", help="report CPU/GPU rendering time, draw calls and texture uploads")
     parser.add_argument("--validate-render", action="store_true")
     parser.add_argument("--validation-timeout", type=float, default=5.0)
     parser.add_argument("-r", "--title", default="galapix-py")
@@ -77,6 +78,7 @@ def main() -> int:
         show_filenames=args.show_filenames,
         temp_cache=args.temp_cache,
         prepare_with_rust=args.rust,
+        profile_render=args.profile_render,
         validate_render=args.validate_render,
         validation_timeout=args.validation_timeout,
         quit_key=args.quit_key,

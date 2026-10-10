@@ -8,6 +8,8 @@ import numpy as np
 from OpenGL import GL
 from OpenGL.GL.shaders import compileShader
 
+from .render_profile import RenderProfiler
+
 
 VERTEX_SHADER = """#version 330 core
 layout(location = 0) in vec2 corner;
@@ -44,7 +46,8 @@ class RectangleRenderer:
     Construct and close only while the owning GL context is current.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, profiler: RenderProfiler | None = None) -> None:
+        self.profiler = profiler
         self.program = self.vao = self.vbo = 0
         shaders = []
         try:
@@ -106,6 +109,9 @@ class RectangleRenderer:
         if texture:
             GL.glBindTexture(GL.GL_TEXTURE_2D, texture)
         GL.glDrawArrays(GL.GL_LINE_LOOP if outline else GL.GL_TRIANGLE_FAN, 0, 4)
+        if self.profiler is not None:
+            self.profiler.totals.draw_calls += 1
+            self.profiler.totals.textured_draws += bool(texture)
 
     def end_frame(self) -> None:
         GL.glBindVertexArray(0)
