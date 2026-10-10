@@ -187,6 +187,27 @@ class RendererGLTests(unittest.TestCase):
         self.assertEqual(self.cache.profiler.totals.uploads, 1)
         self.assertEqual(self.cache.profiler.totals.upload_bytes, 45)
 
+    def test_uniform_reuse_handles_state_changes_and_texture_uploads(self):
+        red = self.texture(PILImage.new("RGB", (3, 3), (255, 0, 0)))
+        with (
+            patch("galapix_py.renderer.GL.glUniform4f", wraps=GL.glUniform4f) as uniform4,
+            patch("galapix_py.renderer.GL.glUniform1i", wraps=GL.glUniform1i) as uniform1,
+        ):
+            self.renderer.draw(0, 0, 32, 32, texture=red)
+            self.renderer.draw(32, 0, 64, 32, texture=red)
+            # Two positions, one UV, one color and one textured flag.
+            self.assertEqual(uniform4.call_count, 4)
+            self.assertEqual(uniform1.call_count, 1)
+            # A separate upload changes the texture binding; the next draw
+            # must bind its own texture even when its uniforms are cached.
+            self.texture(PILImage.new("RGB", (3, 3), (0, 0, 255)))
+            self.renderer.draw(0, 32, 32, 64, texture=red)
+            self.assertEqual(self.pixel(16, 48), (255, 0, 0))
+            self.renderer.draw(32, 32, 64, 64, color=(0, 1, 0, 1))
+            self.assertEqual(self.pixel(48, 48), (0, 255, 0))
+            self.renderer.draw(32, 32, 64, 64, texture=red)
+            self.assertEqual(self.pixel(48, 48), (255, 0, 0))
+
 
 if __name__ == "__main__":
     unittest.main()

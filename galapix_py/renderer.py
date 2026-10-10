@@ -42,13 +42,14 @@ class RectangleRenderer:
     """Reuse one static unit quad, transforming it with per-draw uniforms.
 
     Draws are submitted immediately to preserve alpha compositing order and
-    allow the viewer to delete temporary label textures after drawing them.
+    texture lifetimes. Unchanged shader uniforms are reused between draws.
     Construct and close only while the owning GL context is current.
     """
 
     def __init__(self, profiler: RenderProfiler | None = None) -> None:
         self.profiler = profiler
         self.program = self.vao = self.vbo = 0
+        self._uv = self._color = self._textured = None
         shaders = []
         try:
             shaders.append(compileShader(VERTEX_SHADER, GL.GL_VERTEX_SHADER))
@@ -84,6 +85,7 @@ class RectangleRenderer:
                 GL.glDeleteShader(shader)
 
     def begin_frame(self, width: int, height: int) -> None:
+        self._uv = self._color = self._textured = None
         GL.glUseProgram(self.program)
         GL.glBindVertexArray(self.vao)
         GL.glActiveTexture(GL.GL_TEXTURE0)
@@ -103,10 +105,18 @@ class RectangleRenderer:
         outline: bool = False,
     ) -> None:
         GL.glUniform4f(self.uniforms["rect"], left, top, right, bottom)
-        GL.glUniform4f(self.uniforms["uv_rect"], *uv)
-        GL.glUniform4f(self.uniforms["color"], *color)
-        GL.glUniform1i(self.uniforms["textured"], bool(texture))
+        if uv != self._uv:
+            GL.glUniform4f(self.uniforms["uv_rect"], *uv)
+            self._uv = uv
+        if color != self._color:
+            GL.glUniform4f(self.uniforms["color"], *color)
+            self._color = color
+        textured = bool(texture)
+        if textured != self._textured:
+            GL.glUniform1i(self.uniforms["textured"], textured)
+            self._textured = textured
         if texture:
+            # Uploads elsewhere in the viewer can change the bound texture.
             GL.glBindTexture(GL.GL_TEXTURE_2D, texture)
         GL.glDrawArrays(GL.GL_LINE_LOOP if outline else GL.GL_TRIANGLE_FAN, 0, 4)
         if self.profiler is not None:

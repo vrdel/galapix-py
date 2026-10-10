@@ -36,6 +36,7 @@ Notable differences in the current implementation:
 The viewer requires a graphics driver supporting OpenGL 3.3 core or newer. Tiles,
 text, overlays, and selection borders share a static quad VBO/VAO; shader uniforms
 set screen coordinates, texture cropping, and color without per-frame vertex uploads.
+Unchanged shader uniforms are reused between draws.
 Overlay text textures are reused until their text changes. High-DPI windows use
 the drawable pixel size for rendering and tile detail, keeping input and layout
 in logical window coordinates.
