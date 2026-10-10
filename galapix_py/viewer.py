@@ -389,7 +389,7 @@ class Viewer:
 
     def draw(self) -> FrameRenderStats:
         if self.renderer is None:
-            self.renderer = RectangleRenderer(self.profiler)
+            self.renderer = RectangleRenderer(self.profiler, batch_solids=True)
         if self.profiler is not None:
             self.profiler.begin_frame()
         try:

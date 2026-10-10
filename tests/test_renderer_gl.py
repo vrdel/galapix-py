@@ -18,6 +18,7 @@ from PIL import Image as PILImage
 import sdl2
 
 from galapix_py.models import ViewerOptions
+from galapix_py.image import Image
 from galapix_py.renderer import RectangleRenderer
 from galapix_py.render_profile import RenderProfiler
 from galapix_py.viewer import TextureCache, Viewer
@@ -207,6 +208,67 @@ class RendererGLTests(unittest.TestCase):
             self.assertEqual(self.pixel(48, 48), (0, 255, 0))
             self.renderer.draw(32, 32, 64, 64, texture=red)
             self.assertEqual(self.pixel(48, 48), (255, 0, 0))
+
+    def test_solid_batches_match_immediate_alpha_and_texture_order(self):
+        texture = self.texture(PILImage.new("RGBA", (3, 3), (80, 120, 240, 180)))
+
+        def scene(renderer):
+            renderer.begin_frame(64, 64)
+            renderer.draw(0, 0, 64, 64, texture=texture)
+            for i in range(6):
+                renderer.draw(i * 3, i * 3, 50, 50, color=(1, i / 6, 0, 0.25))
+            # Texture and outline draws must flush older fills first.
+            renderer.draw(16, 16, 56, 56, texture=texture)
+            for i in range(4):
+                renderer.draw(8, 8, 60, 60, color=(0, 0.2 * i, 1, 0.3))
+            renderer.draw(8.5, 8.5, 55.5, 55.5, color=(1, 1, 1, 1), outline=True)
+            renderer.draw(0, 0, 8, 8, color=(0, 1, 0, 1))
+            renderer.end_frame()
+            return np.frombuffer(GL.glReadPixels(0, 0, 64, 64, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE), dtype=np.uint8)
+
+        expected = scene(self.renderer)
+        GL.glClear(GL.GL_COLOR_BUFFER_BIT)
+        profiler = RenderProfiler()
+        batched = RectangleRenderer(profiler, batch_solids=True)
+        self.addCleanup(batched.close)
+        actual = scene(batched)
+        np.testing.assert_array_equal(actual, expected)
+        self.assertEqual(profiler.totals.instanced_rectangles, 10)
+        self.assertEqual(profiler.totals.draw_calls, 6)
+        self.assertEqual(profiler.totals.instance_upload_bytes, 10 * 32)
+
+    def test_solid_batch_limit_and_instance_buffer_cleanup(self):
+        profiler = RenderProfiler()
+        batched = RectangleRenderer(profiler, batch_solids=True)
+        self.addCleanup(batched.close)
+        batched.begin_frame(64, 64)
+        for _ in range(batched.MAX_SOLID_BATCH + 3):
+            batched.draw(0, 0, 32, 32, color=(1, 0, 0, 1))
+        self.assertEqual(len(batched._solid_rects), 3)
+        batched.end_frame()
+        self.assertEqual(self.pixel(16, 16), (255, 0, 0))
+        self.assertEqual(profiler.totals.draw_calls, 4)
+        self.assertEqual(profiler.totals.instanced_rectangles, batched.MAX_SOLID_BATCH)
+        instance_vbo = batched.instance_vbo
+        batched.close()
+        batched.close()
+        self.assertFalse(GL.glIsBuffer(instance_vbo))
+
+    def test_viewer_batches_visible_placeholders(self):
+        workspace = Workspace()
+        for index in range(100):
+            image = Image(f"/tmp/placeholder-{index}.png")
+            image.file_entry_requested = True
+            image.set_absolute(3 + (index % 10) * 6, 3 + (index // 10) * 6, 0.02)
+            workspace.add_image(image)
+        viewer = Viewer(ViewerOptions(database=Path("/tmp/unused-gl-test"), profile_render=True), workspace, None)
+        self.addCleanup(viewer.release_gl_resources)
+        viewer.set_viewport(64, 64)
+        stats = viewer.draw()
+        self.assertEqual(stats.placeholder_tiles, 100)
+        self.assertEqual(viewer.profiler.totals.draw_calls, 1)
+        self.assertEqual(viewer.profiler.totals.instanced_rectangles, 100)
+        self.assertEqual(GL.glGetError(), GL.GL_NO_ERROR)
 
 
 if __name__ == "__main__":

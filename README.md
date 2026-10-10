@@ -34,9 +34,11 @@ Notable differences in the current implementation:
 - the viewer now includes a live filename search overlay opened with `/`
 
 The viewer requires a graphics driver supporting OpenGL 3.3 core or newer. Tiles,
-text, overlays, and selection borders share a static quad VBO/VAO; shader uniforms
-set screen coordinates, texture cropping, and color without per-frame vertex uploads.
-Unchanged shader uniforms are reused between draws.
+text, overlays, and selection borders share a static quad VBO/VAO. Texture and
+outline draws reuse unchanged shader uniforms. Consecutive solid fills use
+instanced drawing with a streamed buffer of bounds and colors, preserving draw
+order. Batches are capped at 1,024 rectangles and flushed before textures or
+outlines; groups smaller than four keep the ordinary drawing path.
 Overlay text textures are reused until their text changes. High-DPI windows use
 the drawable pixel size for rendering and tile detail, keeping input and layout
 in logical window coordinates.
@@ -167,7 +169,8 @@ galapix-py --profile-render view /path/to/images
 Profiling writes cumulative statistics to stderr at most once per second while
 rendering, plus a final report on exit. It reports mean/maximum CPU render time,
 mean GPU elapsed time and completed GPU sample count, draw calls per frame,
-texture upload count/bytes, and CPU time spent preparing/uploading textures and submitting overlays.
+texture upload count/bytes, instanced rectangle counts and buffer upload bytes,
+and CPU time spent preparing/uploading textures and submitting overlays.
 CPU render time excludes shader setup, event processing and
 buffer swapping/vsync; the first frames still include cache warm-up. Upload time
 includes image decoding or text rasterization. Upload and overlay times are

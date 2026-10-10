@@ -19,6 +19,8 @@ class ProfileTotals:
     gpu_samples: int = 0
     draw_calls: int = 0
     textured_draws: int = 0
+    instanced_rectangles: int = 0
+    instance_upload_bytes: int = 0
     uploads: int = 0
     upload_bytes: int = 0
     upload_cpu_ms: float = 0.0
@@ -97,6 +99,8 @@ class RenderProfiler:
             f"gpu_ms_avg={gpu} gpu_samples={totals.gpu_samples} "
             f"draws_per_frame={totals.draw_calls / totals.frames:.1f} "
             f"textured_draws_per_frame={totals.textured_draws / totals.frames:.1f} "
+            f"instanced_rects_per_frame={totals.instanced_rectangles / totals.frames:.1f} "
+            f"instance_mib={totals.instance_upload_bytes / 1048576:.3f} "
             f"uploads={totals.uploads} upload_mib={totals.upload_bytes / 1048576:.3f} "
             f"upload_cpu_ms={totals.upload_cpu_ms:.3f} "
             f"overlay_cpu_ms={totals.overlay_cpu_ms:.3f}",
