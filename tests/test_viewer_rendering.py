@@ -1,9 +1,15 @@
+import ctypes
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
+import sdl2
+
+from galapix_py.image import Image, ImageTileCache
 from galapix_py.models import ViewerOptions
-from galapix_py.viewer import LabelTexture, Viewer, _measure_text
+from galapix_py.sdl_viewer import SDLViewer
+from galapix_py.viewer import FrameRenderStats, LabelTexture, Viewer, _measure_text
 from galapix_py.workspace import Workspace
 
 
@@ -68,3 +74,53 @@ class ViewerRenderingTests(unittest.TestCase):
             self.viewer._draw_search_overlay()
             self.assertEqual(create.call_count, 3)
         self.assertTrue(all(value > 0 for value in _measure_text("Mg", 16)))
+
+    def test_viewport_keeps_logical_coordinates_and_physical_density(self):
+        with patch("galapix_py.viewer.glViewport") as viewport:
+            self.viewer.set_viewport(400, 300, 800, 600)
+            viewport.assert_called_once_with(0, 0, 800, 600)
+            self.assertEqual((self.viewer.viewport_width, self.viewer.viewport_height), (400, 300))
+            self.assertEqual(self.viewer.drawable_scale, 2)
+            self.viewer.set_viewport(400, 300)
+            self.assertEqual(self.viewer.drawable_scale, 1)
+            self.viewer.set_viewport(0, 0, 0, 0)
+            viewport.assert_called_with(0, 0, 1, 1)
+            self.assertEqual(self.viewer.drawable_scale, 1)
+
+    def test_sdl_syncs_both_sizes_on_resize_and_display_change(self):
+        viewer = Mock()
+        backend = SDLViewer(viewer)
+
+        def size_result(width, height):
+            def get_size(window, w, h):
+                ctypes.cast(w, ctypes.POINTER(ctypes.c_int))[0] = width
+                ctypes.cast(h, ctypes.POINTER(ctypes.c_int))[0] = height
+            return get_size
+
+        with (
+            patch("galapix_py.sdl_viewer.sdl2.SDL_GetWindowSize", side_effect=size_result(400, 300)),
+            patch("galapix_py.sdl_viewer.sdl2.SDL_GL_GetDrawableSize", side_effect=size_result(800, 600)),
+        ):
+            for event_type in (sdl2.SDL_WINDOWEVENT_SIZE_CHANGED, sdl2.SDL_WINDOWEVENT_MOVED,
+                               sdl2.SDL_WINDOWEVENT_DISPLAY_CHANGED, sdl2.SDL_WINDOWEVENT_RESTORED):
+                viewer.reset_mock()
+                backend._process_event(SimpleNamespace(type=sdl2.SDL_WINDOWEVENT,
+                                                       window=SimpleNamespace(event=event_type)))
+                viewer.set_viewport.assert_called_once_with(400, 300, 800, 600)
+
+    def test_high_dpi_requests_higher_resolution_tiles(self):
+        provider = Mock()
+        provider.get_size.return_value = (1024, 1024)
+        provider.get_max_scale.return_value = 4
+        image = Image("/tmp/sample.png")
+        image.provider = provider
+        image.cache = ImageTileCache(provider)
+        image.set_absolute(512, 512, 1)
+        self.viewer.state.scale = 0.25
+        with patch("galapix_py.viewer.glViewport"), patch.object(self.viewer, "_draw_solid_rect"):
+            self.viewer.set_viewport(400, 300, 400, 300)
+            self.viewer._draw_image(image, FrameRenderStats())
+            self.assertEqual(image.cache.focus_scale, 2)
+            self.viewer.set_viewport(400, 300, 800, 600)
+            self.viewer._draw_image(image, FrameRenderStats())
+            self.assertEqual(image.cache.focus_scale, 1)

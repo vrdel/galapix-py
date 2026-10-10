@@ -260,7 +260,8 @@ class SDLViewer:
         for attribute, value in attributes:
             if sdl2.SDL_GL_SetAttribute(attribute, value) != 0:
                 raise RuntimeError(f"OpenGL 3.3 setup failed: {sdl2.SDL_GetError().decode()}")
-        flags = sdl2.SDL_WINDOW_OPENGL | sdl2.SDL_WINDOW_RESIZABLE | sdl2.SDL_WINDOW_HIDDEN
+        flags = (sdl2.SDL_WINDOW_OPENGL | sdl2.SDL_WINDOW_RESIZABLE
+                 | sdl2.SDL_WINDOW_HIDDEN | sdl2.SDL_WINDOW_ALLOW_HIGHDPI)
         if self.fullscreen:
             flags |= sdl2.SDL_WINDOW_FULLSCREEN_DESKTOP
         self.window = sdl2.SDL_CreateWindow(
@@ -283,7 +284,7 @@ class SDLViewer:
                 file=sys.stderr,
             )
         sdl2.SDL_ShowWindow(self.window)
-        self.viewer.set_viewport(self.viewer.options.width, self.viewer.options.height)
+        self._sync_viewport()
         self.viewer.zoom_to_workspace()
         self.running = True
         event = sdl2.SDL_Event()
@@ -319,6 +320,13 @@ class SDLViewer:
             self._reap_child_viewers()
             # Let vsync pace warm-up frames, with a small yield if unavailable.
             sdl2.SDL_Delay(1 if time.monotonic() < self._focus_warmup_until else 10)
+
+    def _sync_viewport(self) -> None:
+        width, height = ctypes.c_int(), ctypes.c_int()
+        pixel_width, pixel_height = ctypes.c_int(), ctypes.c_int()
+        sdl2.SDL_GetWindowSize(self.window, ctypes.byref(width), ctypes.byref(height))
+        sdl2.SDL_GL_GetDrawableSize(self.window, ctypes.byref(pixel_width), ctypes.byref(pixel_height))
+        self.viewer.set_viewport(width.value, height.value, pixel_width.value, pixel_height.value)
 
     def _process_keyboard_state(self) -> None:
         if getattr(self.viewer, "search_active", False):
@@ -454,9 +462,13 @@ class SDLViewer:
                     self.viewer.select_at_screen(event.button.x, event.button.y, toggle=self._ctrl_pressed())
                 self.mouse_down_pos = None
         elif event.type == sdl2.SDL_WINDOWEVENT:
-            if event.window.event == sdl2.SDL_WINDOWEVENT_SIZE_CHANGED:
-                self.viewer.set_viewport(event.window.data1, event.window.data2)
-                self.viewer.request_redraw()
+            if event.window.event in {
+                sdl2.SDL_WINDOWEVENT_SIZE_CHANGED,
+                sdl2.SDL_WINDOWEVENT_MOVED,
+                sdl2.SDL_WINDOWEVENT_DISPLAY_CHANGED,
+                sdl2.SDL_WINDOWEVENT_RESTORED,
+            }:
+                self._sync_viewport()
             elif event.window.event == sdl2.SDL_WINDOWEVENT_FOCUS_GAINED:
                 # Briefly resume rendering so the graphics driver can warm up
                 # before interaction, then return to drawing only on demand.

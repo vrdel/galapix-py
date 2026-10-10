@@ -141,6 +141,16 @@ class RendererGLTests(unittest.TestCase):
         viewer.draw()  # Resources can be recreated in the current context.
         self.assertEqual(GL.glGetError(), GL.GL_NO_ERROR)
 
+    def test_high_dpi_viewport_uses_entire_framebuffer(self):
+        viewer = Viewer(ViewerOptions(database=Path("/tmp/unused-gl-test")), Workspace(), None)
+        self.addCleanup(viewer.release_gl_resources)
+        viewer.set_viewport(32, 32, 64, 64)
+        self.renderer.begin_frame(viewer.viewport_width, viewer.viewport_height)
+        self.renderer.draw(16, 16, 32, 32, color=(0, 1, 0, 1))
+        self.assertEqual(self.pixel(60, 60), (0, 255, 0))
+        self.assertEqual(self.pixel(24, 24), (0, 0, 0))
+        self.assertEqual(viewer.state.screen_to_world(16, 16), (16, 16))
+
 
 if __name__ == "__main__":
     unittest.main()

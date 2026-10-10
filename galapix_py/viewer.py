@@ -273,6 +273,7 @@ class Viewer:
         self.renderer: RectangleRenderer | None = None
         self.label_textures: dict[str, LabelTexture] = {}
         self.overlay_textures: dict[str, tuple[str, int, LabelTexture]] = {}
+        self.drawable_scale = 1.0
         self.background_colors = [
             (0.39, 0.39, 0.39, 1.0),
             (0.25, 0.25, 0.25, 1.0),
@@ -311,10 +312,17 @@ class Viewer:
             self.state.offset_y + y * self.state.scale,
         )
 
-    def set_viewport(self, width: int, height: int) -> None:
+    def set_viewport(
+        self, width: int, height: int,
+        drawable_width: int | None = None, drawable_height: int | None = None,
+    ) -> None:
+        # Input, layout and shader coordinates stay in logical window units.
         self.viewport_width = max(1, width)
         self.viewport_height = max(1, height)
-        glViewport(0, 0, self.viewport_width, self.viewport_height)
+        pixel_width = max(1, width if drawable_width is None else drawable_width)
+        pixel_height = max(1, height if drawable_height is None else drawable_height)
+        self.drawable_scale = max(pixel_width / self.viewport_width, pixel_height / self.viewport_height)
+        glViewport(0, 0, pixel_width, pixel_height)
         self.needs_redraw = True
 
     def zoom_home(self) -> None:
@@ -926,7 +934,7 @@ class Viewer:
         if image.cache is None:
             return
 
-        zoom = self.state.scale
+        zoom = self.state.scale * self.drawable_scale
         scale = image.choose_scale(zoom)
         image.cache.set_focus_scale(scale)
         factor = 2 ** scale
