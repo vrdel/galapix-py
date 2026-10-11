@@ -287,7 +287,7 @@ class Viewer:
         self.db_thread = db_thread
         self.state = ViewerState()
         self.profiler = RenderProfiler() if options.profile_render else None
-        self.texture_cache = TextureCache(profiler=self.profiler)
+        self.texture_cache = TextureCache(profiler=self.profiler, arrays=TileTextureArrays())
         self.renderer: RectangleRenderer | None = None
         self.label_textures: dict[str, LabelTexture] = {}
         self.overlay_textures: dict[str, tuple[str, int, LabelTexture]] = {}
@@ -439,6 +439,7 @@ class Viewer:
             self._draw_overlay(self._draw_search_filter_badge)
         if self.keyboard_selection_active:
             self._draw_overlay(self._draw_keyboard_selection_badge)
+        self.renderer.flush()
         self.texture_cache.end_frame()
         self.needs_redraw = False
         self.last_frame_stats = stats
@@ -846,7 +847,7 @@ class Viewer:
 
     def _draw_textured_rect(
         self,
-        texture: int,
+        texture: int | TileTexture,
         left: float,
         top: float,
         right: float,
@@ -856,7 +857,10 @@ class Viewer:
         u1: float = 1.0,
         v1: float = 1.0,
     ) -> None:
-        self.renderer.draw(left, top, right, bottom, texture=texture, uv=(u0, v0, u1, v1))
+        if isinstance(texture, TileTexture):
+            self.renderer.draw_tile(texture, left, top, right, bottom, uv=(u0, v0, u1, v1))
+        else:
+            self.renderer.draw(left, top, right, bottom, texture=texture, uv=(u0, v0, u1, v1))
 
     def _draw_outline(self, left: float, top: float, right: float, bottom: float, color: tuple[float, float, float]) -> None:
         self.renderer.draw(left, top, right, bottom, color=(*color, 1.0), outline=True)

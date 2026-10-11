@@ -10,15 +10,15 @@ import os
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import numpy as np
 from OpenGL import GL
 from PIL import Image as PILImage
 import sdl2
 
-from galapix_py.models import ViewerOptions
-from galapix_py.image import Image
+from galapix_py.models import TileRecord, ViewerOptions
+from galapix_py.image import Image, ImageTileCache
 from galapix_py.renderer import RectangleRenderer
 from galapix_py.render_profile import RenderProfiler
 from galapix_py.tile_textures import TileTextureArrays
@@ -271,6 +271,62 @@ class RendererGLTests(unittest.TestCase):
         self.assertEqual(viewer.profiler.totals.instanced_rectangles, 100)
         self.assertEqual(GL.glGetError(), GL.GL_NO_ERROR)
 
+    def test_array_tiles_match_2d_textures_with_cropping_alpha_and_draw_order(self):
+        arrays = TileTextureArrays()
+        self.addCleanup(arrays.clear)
+        images = []
+        for index in range(6):
+            pixels = np.zeros((5, 7, 4), dtype=np.uint8)
+            pixels[:, :, :] = (20 + 30 * index, 190, 50, 140)
+            pixels[:2, :3] = (255, 0, 70, 255)
+            images.append(PILImage.fromarray(pixels))
+        images.extend([PILImage.new("L", (3, 5), 137), PILImage.new("RGB", (7, 3), (17, 99, 231))])
+        ordinary = [self.texture(image) for image in images]
+        layered = [arrays.upload(np.array(image), image.width, image.height,
+                                 len(image.getbands())) for image in images]
+
+        def scene(use_arrays):
+            self.renderer.begin_frame(64, 64)
+            self.renderer.draw(0, 0, 64, 64, color=(0, 0, 1, 1))
+            for index in range(len(images)):
+                args = (index * 3, index * 3, 60, 60)
+                uv = (-0.2, 0.25, 1.2, 0.75) if index % 2 else (0, 0, 1, 1)
+                if use_arrays:
+                    self.renderer.draw_tile(layered[index], *args, uv=uv)
+                else:
+                    self.renderer.draw(*args, texture=ordinary[index], uv=uv)
+                if index == 2:
+                    self.renderer.draw(0, 0, 40, 40, color=(0, 1, 0, 0.2))
+                    self.renderer.draw(4, 4, 32, 32, texture=ordinary[0])
+            self.renderer.draw(8.5, 8.5, 55.5, 55.5, outline=True)
+            self.renderer.end_frame()
+            return np.frombuffer(GL.glReadPixels(0, 0, 64, 64, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE), dtype=np.uint8)
+
+        expected = scene(False)
+        GL.glClear(GL.GL_COLOR_BUFFER_BIT)
+        actual = scene(True)
+        np.testing.assert_array_equal(actual, expected)
+        self.assertEqual(GL.glGetError(), GL.GL_NO_ERROR)
+
+    def test_array_uploads_during_queued_draws_and_page_rollover(self):
+        arrays = TileTextureArrays()
+        self.addCleanup(arrays.clear)
+        profiler = RenderProfiler()
+        self.renderer.profiler = profiler
+        handles = []
+        for index in range(16):
+            pixels = np.full((3, 3, 4), (index * 15, 80, 200, 255), dtype=np.uint8)
+            handle = arrays.upload(pixels, 3, 3, 4)
+            handles.append(handle)
+            self.renderer.draw_tile(handle, index * 4, 0, index * 4 + 4, 64)
+        self.renderer.end_frame()
+        for index in range(16):
+            self.assertEqual(self.pixel(index * 4 + 2, 32), (index * 15, 80, 200))
+        self.assertEqual(profiler.totals.draw_calls, len({handle.array_id for handle in handles}))
+        self.assertEqual(profiler.totals.draw_calls, 3)
+        self.assertEqual(profiler.totals.instanced_tiles, 16)
+        self.assertEqual(profiler.totals.instance_upload_bytes, 16 * 52)
+
     def test_array_cache_eviction_reuses_slots_and_releases_empty_pages(self):
         arrays = TileTextureArrays()
         cache = TextureCache(arrays=arrays, max_idle_frames=1)
@@ -288,6 +344,11 @@ class RendererGLTests(unittest.TestCase):
         cache.end_frame()
         replacement = get("replacement", (0, 0, 255))
         self.assertEqual(replacement, expired)
+        self.renderer.draw_tile(first, 0, 0, 32, 64)
+        self.renderer.draw_tile(replacement, 32, 0, 64, 64)
+        self.renderer.end_frame()
+        self.assertEqual(self.pixel(16, 32), (255, 0, 0))
+        self.assertEqual(self.pixel(48, 32), (0, 0, 255))
         cache.begin_frame()
         cache.end_frame()
         self.assertFalse(GL.glIsTexture(first.array_id))
@@ -303,6 +364,62 @@ class RendererGLTests(unittest.TestCase):
                 arrays.upload(np.zeros((3, 3, 4), dtype=np.uint8), 3, 3, 4)
         self.assertEqual(arrays.pages, {})
         self.assertEqual(arrays.pools, {})
+
+    def test_tile_batch_limit_and_buffer_cleanup(self):
+        arrays = TileTextureArrays()
+        self.addCleanup(arrays.clear)
+        handle = arrays.upload(np.full((3, 3, 4), 255, dtype=np.uint8), 3, 3, 4)
+        profiler = RenderProfiler()
+        self.renderer.profiler = profiler
+        for _ in range(self.renderer.MAX_TILE_BATCH + 3):
+            self.renderer.draw_tile(handle, 0, 0, 32, 32)
+        self.assertEqual(len(self.renderer._tile_rects), 3)
+        self.renderer.end_frame()
+        self.assertEqual(self.pixel(16, 16), (255, 255, 255))
+        self.assertEqual(profiler.totals.draw_calls, 2)
+        vbo, vao = self.renderer.tile_vbo, self.renderer.tile_vao
+        self.renderer.close()
+        self.assertFalse(GL.glIsBuffer(vbo))
+        self.assertFalse(GL.glIsVertexArray(vao))
+
+    def test_viewer_batches_exact_parent_and_child_tiles(self):
+        colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0)]
+        for mode in ("exact", "parent", "children"):
+            with self.subTest(mode=mode):
+                provider = Mock()
+                provider.get_size.return_value = (512, 512)
+                provider.get_max_scale.return_value = 1
+                image = Image("/tmp/tile-batch.png")
+                image.provider = provider
+                image.cache = ImageTileCache(provider)
+                image.set_absolute(32, 32, 0.125)
+                if mode == "parent":
+                    parent = PILImage.new("RGB", (256, 256))
+                    for index, color in enumerate(colors):
+                        x, y = index % 2 * 128, index // 2 * 128
+                        parent.paste(color, (x, y, x + 128, y + 128))
+                    tiles = [(1, 0, 0, parent)]
+                else:
+                    tiles = [(0, index % 2, index // 2, PILImage.new("RGB", (256, 256), color))
+                             for index, color in enumerate(colors)]
+                for scale, x, y, pixels in tiles:
+                    data = BytesIO()
+                    pixels.save(data, format="PNG")
+                    image.cache.tiles[(scale, x, y)] = TileRecord(None, scale, x, y, 256, 256, data.getvalue())
+                workspace = Workspace()
+                workspace.add_image(image)
+                viewer = Viewer(ViewerOptions(database=Path("/tmp/unused-gl-test"), profile_render=True), workspace, None)
+                self.addCleanup(viewer.release_gl_resources)
+                viewer.set_viewport(64, 64)
+                with patch.object(Image, "choose_scale", return_value=1 if mode == "children" else 0):
+                    stats = viewer.draw()
+                    viewer.draw()
+                self.assertEqual(stats.textured_tiles, 4)
+                self.assertEqual(viewer.profiler.totals.draw_calls, 2)
+                self.assertEqual(viewer.profiler.totals.instanced_tiles, 8)
+                self.assertEqual(viewer.profiler.totals.uploads, len(tiles))
+                for index, color in enumerate(colors):
+                    self.assertEqual(self.pixel(16 + index % 2 * 32, 16 + index // 2 * 32), color)
 
 
 if __name__ == "__main__":
