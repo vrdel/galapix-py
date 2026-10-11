@@ -49,6 +49,7 @@ from .models import ViewerOptions
 from .providers import DatabaseTileProvider
 from .renderer import RectangleRenderer
 from .render_profile import RenderProfiler
+from .tile_textures import TileTexture, TileTextureArrays
 from .viewer_state import ViewerState
 from .workspace import Workspace
 
@@ -99,16 +100,17 @@ def configure_texture_upload_state() -> None:
 
 @dataclass(slots=True)
 class TextureCache:
-    textures: dict[tuple[str, int, int, int], int] = field(default_factory=dict)
+    textures: dict[tuple[str, int, int, int], int | TileTexture] = field(default_factory=dict)
     idle_frames: dict[tuple[str, int, int, int], int] = field(default_factory=dict)
     live_keys: set[tuple[str, int, int, int]] = field(default_factory=set)
     max_idle_frames: int = 120
     profiler: RenderProfiler | None = None
+    arrays: TileTextureArrays | None = None
 
     def begin_frame(self) -> None:
         self.live_keys.clear()
 
-    def get_or_create(self, image: Image, scale: int, x: int, y: int, jpeg_bytes: bytes) -> int:
+    def get_or_create(self, image: Image, scale: int, x: int, y: int, jpeg_bytes: bytes) -> int | TileTexture:
         key = (image.url, scale, x, y)
         texture = self.textures.get(key)
         if texture is not None:
@@ -116,26 +118,29 @@ class TextureCache:
             self.idle_frames[key] = 0
             return texture
         upload_started = perf_counter() if self.profiler is not None else 0.0
-        texture = int(glGenTextures(1))
-        glBindTexture(GL_TEXTURE_2D, texture)
-        configure_texture_upload_state()
         memory, width, height, channels = _decode_texture_pixels(jpeg_bytes)
-        fmt = {1: GL_RED, 3: GL_RGB, 4: GL_RGBA}[channels]
-        if channels == 1:
-            # Core profiles replace luminance textures with a red channel swizzle.
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_G, GL_RED)
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, GL_RED)
-        glTexImage2D(
-            GL_TEXTURE_2D,
-            0,
-            GL_R8 if channels == 1 else fmt,
-            width,
-            height,
-            0,
-            fmt,
-            GL_UNSIGNED_BYTE,
-            memory,
-        )
+        if self.arrays is not None:
+            texture = self.arrays.upload(memory, width, height, channels)
+        else:
+            texture = int(glGenTextures(1))
+            glBindTexture(GL_TEXTURE_2D, texture)
+            configure_texture_upload_state()
+            fmt = {1: GL_RED, 3: GL_RGB, 4: GL_RGBA}[channels]
+            if channels == 1:
+                # Core profiles replace luminance textures with a red channel swizzle.
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_G, GL_RED)
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, GL_RED)
+            glTexImage2D(
+                GL_TEXTURE_2D,
+                0,
+                GL_R8 if channels == 1 else fmt,
+                width,
+                height,
+                0,
+                fmt,
+                GL_UNSIGNED_BYTE,
+                memory,
+            )
         if self.profiler is not None:
             self.profiler.record_upload(memory.nbytes, upload_started)
         self.textures[key] = texture
@@ -144,11 +149,13 @@ class TextureCache:
         return texture
 
     def clear(self) -> None:
-        if self.textures:
+        if self.arrays is not None:
+            self.arrays.clear()
+        elif self.textures:
             glDeleteTextures(list(self.textures.values()))
-            self.textures.clear()
-            self.idle_frames.clear()
-            self.live_keys.clear()
+        self.textures.clear()
+        self.idle_frames.clear()
+        self.live_keys.clear()
 
     def end_frame(self) -> None:
         expired: list[tuple[str, int, int, int]] = []
@@ -160,7 +167,11 @@ class TextureCache:
                 if self.idle_frames[key] >= self.max_idle_frames:
                     expired.append(key)
         if expired:
-            glDeleteTextures([self.textures[key] for key in expired])
+            if self.arrays is not None:
+                for key in expired:
+                    self.arrays.release(self.textures[key])
+            else:
+                glDeleteTextures([self.textures[key] for key in expired])
             for key in expired:
                 del self.textures[key]
                 self.idle_frames.pop(key, None)

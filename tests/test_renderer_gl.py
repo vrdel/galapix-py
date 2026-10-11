@@ -21,6 +21,7 @@ from galapix_py.models import ViewerOptions
 from galapix_py.image import Image
 from galapix_py.renderer import RectangleRenderer
 from galapix_py.render_profile import RenderProfiler
+from galapix_py.tile_textures import TileTextureArrays
 from galapix_py.viewer import TextureCache, Viewer
 from galapix_py.workspace import Workspace
 
@@ -269,6 +270,39 @@ class RendererGLTests(unittest.TestCase):
         self.assertEqual(viewer.profiler.totals.draw_calls, 1)
         self.assertEqual(viewer.profiler.totals.instanced_rectangles, 100)
         self.assertEqual(GL.glGetError(), GL.GL_NO_ERROR)
+
+    def test_array_cache_eviction_reuses_slots_and_releases_empty_pages(self):
+        arrays = TileTextureArrays()
+        cache = TextureCache(arrays=arrays, max_idle_frames=1)
+        self.addCleanup(cache.clear)
+
+        def get(name, color):
+            data = BytesIO()
+            PILImage.new("RGB", (3, 5), color).save(data, format="PNG")
+            return cache.get_or_create(SimpleNamespace(url=name), 0, 0, 0, data.getvalue())
+
+        first = get("first", (255, 0, 0))
+        expired = get("expired", (0, 255, 0))
+        cache.begin_frame()
+        self.assertEqual(get("first", (255, 0, 0)), first)
+        cache.end_frame()
+        replacement = get("replacement", (0, 0, 255))
+        self.assertEqual(replacement, expired)
+        cache.begin_frame()
+        cache.end_frame()
+        self.assertFalse(GL.glIsTexture(first.array_id))
+        self.assertEqual(arrays.pages, {})
+        self.assertEqual(arrays.pools, {})
+        cache.clear()
+
+    def test_failed_array_upload_releases_new_page(self):
+        arrays = TileTextureArrays()
+        self.addCleanup(arrays.clear)
+        with patch("galapix_py.tile_textures.GL.glTexSubImage3D", side_effect=RuntimeError("upload failed")):
+            with self.assertRaises(RuntimeError):
+                arrays.upload(np.zeros((3, 3, 4), dtype=np.uint8), 3, 3, 4)
+        self.assertEqual(arrays.pages, {})
+        self.assertEqual(arrays.pools, {})
 
 
 if __name__ == "__main__":
