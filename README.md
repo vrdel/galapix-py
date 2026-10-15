@@ -284,3 +284,13 @@ Quit:
   - title-based status overlay
   - optional filename labels above images
   - live render validation mode
+  - automatic live reload when displayed image tiles are replaced in the SQLite cache
+
+While a viewer is open, it checks SQLite for commits from other connections every
+0.5 seconds. After writes settle for 0.5 seconds, it compares cached metadata and
+tile contents in the database worker and reloads changed images, including changes
+that leave file metadata untouched. Images outside the view are checked when they
+return to the view.
+Source-file edits become visible once a preparation process updates the same cache.
+The OpenGL core renderer flushes queued draws before releasing changed images'
+texture-array layers, preserving other images that share a texture page.

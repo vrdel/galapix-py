@@ -157,6 +157,19 @@ class TextureCache:
         self.idle_frames.clear()
         self.live_keys.clear()
 
+    def remove_image(self, image: Image) -> None:
+        """Release this image's slots after the renderer has flushed its draws."""
+        keys = [key for key in self.textures if key[0] == image.url]
+        if self.arrays is not None:
+            for key in keys:
+                self.arrays.release(self.textures[key])
+        elif keys:
+            glDeleteTextures([self.textures[key] for key in keys])
+        for key in keys:
+            del self.textures[key]
+            self.idle_frames.pop(key, None)
+            self.live_keys.discard(key)
+
     def end_frame(self) -> None:
         expired: list[tuple[str, int, int, int]] = []
         for key in list(self.textures):
@@ -276,6 +289,9 @@ def shade_rgb(
 
 
 class Viewer:
+    CACHE_REFRESH_INTERVAL = 0.5
+    CACHE_CHANGE_DEBOUNCE = 0.5
+
     def __init__(
         self,
         options: ViewerOptions,
@@ -323,6 +339,11 @@ class Viewer:
         self.search_saved_layout: dict[str, SavedPlacement] = {}
         self.keyboard_selection_active = False
         self.keyboard_selection_index = 0
+        self._cache_refresh_elapsed = 0.0
+        self._cache_refresh_pending = False
+        self._cache_version = getattr(db_thread, "initial_cache_version", 0)
+        self._cache_change_elapsed: float | None = None
+        self._cache_snapshots: dict[int, tuple[DatabaseTileProvider, bytes | None, int]] = {}
 
     def world_to_screen(self, x: float, y: float) -> tuple[float, float]:
         return (
@@ -384,10 +405,19 @@ class Viewer:
     def refresh_selection(self) -> None:
         refreshed = False
         for image in self.workspace.selected_images():
+            self._invalidate_image_textures(image)
+            if image.cache is not None:
+                image.cache.clear()
             image.refresh()
             refreshed = True
         if refreshed:
             self.request_redraw()
+
+    def _invalidate_image_textures(self, image: Image) -> None:
+        # Instanced draws may still reference a shared array page or layer.
+        if self.renderer is not None:
+            self.renderer.flush()
+        self.texture_cache.remove_image(image)
 
     def update(self, delta: float) -> None:
         processed = self.db_thread.poll_deliveries() if self.db_thread is not None else 0
@@ -395,8 +425,94 @@ class Viewer:
         self.workspace.update(delta)
         for image in self.workspace.images:
             image.process_queues()
+        self._poll_cache_updates(delta)
         if processed or state_changed or self.workspace.is_animated():
             self.needs_redraw = True
+
+    def _poll_cache_updates(self, delta: float) -> None:
+        if self.db_thread is None:
+            return
+        self._cache_refresh_elapsed += delta
+        if self._cache_change_elapsed is not None:
+            self._cache_change_elapsed += delta
+        if self._cache_refresh_elapsed < self.CACHE_REFRESH_INTERVAL:
+            return
+        self._cache_refresh_elapsed %= self.CACHE_REFRESH_INTERVAL
+
+        visible = [
+            image for image in self.workspace.images
+            if image.visible and isinstance(image.provider, DatabaseTileProvider)
+        ]
+        monitored = visible
+        if not monitored or self._cache_refresh_pending:
+            return
+        self._cache_refresh_pending = True
+
+        def on_cache_version(version: int) -> None:
+            self._cache_refresh_pending = False
+            if version != self._cache_version:
+                self._cache_version = version
+                self._cache_change_elapsed = 0.0
+                return
+            # A hidden image can have missed a previous refresh. Track the
+            # revision per provider so it is checked when it becomes visible.
+            missing_baseline = any(
+                (snapshot := self._cache_snapshots.get(id(image))) is None
+                or snapshot[0] is not image.provider or snapshot[2] != version
+                for image in monitored
+            )
+            changes_settled = (
+                self._cache_change_elapsed is not None
+                and self._cache_change_elapsed >= self.CACHE_CHANGE_DEBOUNCE
+            )
+            if changes_settled or (missing_baseline and self._cache_change_elapsed is None):
+                self._request_cache_snapshot(monitored)
+
+        self.db_thread.request_cache_version(on_cache_version)
+
+    def _request_cache_snapshot(self, images: list[Image]) -> None:
+        if self.db_thread is None:
+            return
+        self._cache_refresh_pending = True
+        expected_providers = {id(image): image.provider for image in images}
+
+        def on_cached_files(entries, signatures: dict[str, bytes], version: int | None) -> None:
+            self._cache_refresh_pending = False
+            if version is None or version != self._cache_version:
+                if version is not None:
+                    self._cache_version = version
+                self._cache_change_elapsed = 0.0
+                return
+            for image in images:
+                expected_provider = expected_providers[id(image)]
+                current_provider = image.provider
+                entry = entries.get(image.url)
+                if current_provider is not expected_provider or entry is None:
+                    continue
+                previous = self._cache_snapshots.get(id(image))
+                old_signature = previous[1] if previous is not None and previous[0] is expected_provider else None
+                new_signature = signatures.get(image.url)
+                metadata_changed = entry != expected_provider.entry
+                tiles_changed = old_signature is not None and new_signature != old_signature
+                # Without a baseline, an external write may already have
+                # replaced tiles loaded before the first snapshot arrived.
+                tiles_changed |= old_signature is None and version != self.db_thread.initial_cache_version
+                self._cache_snapshots[id(image)] = (expected_provider, new_signature, version)
+                if not metadata_changed and not tiles_changed:
+                    continue
+                if image.cache is not None:
+                    image.cache.clear()
+                image.set_provider(DatabaseTileProvider(self.db_thread, entry))
+                self._cache_snapshots[id(image)] = (image.provider, new_signature, version)
+                self._invalidate_image_textures(image)
+                self.needs_redraw = True
+
+            self._cache_change_elapsed = None
+
+        self.db_thread.request_cached_files(
+            tuple(dict.fromkeys(image.url for image in images)),
+            on_cached_files,
+        )
 
     def draw(self) -> FrameRenderStats:
         if self.renderer is None:

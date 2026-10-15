@@ -19,6 +19,7 @@ from galapix_py.app import GalapixApp
 from galapix_py.database import Database
 from galapix_py.image import Image, ImageTileCache
 from galapix_py.models import FileEntry, TileRecord, ViewerOptions
+from galapix_py.providers import DatabaseTileProvider
 from galapix_py.sdl_viewer import LiveRenderValidation, SDLViewer, configure_app_identity_hint, enable_vsync, quit_key_matches, set_x11_window_class
 from galapix_py import tiling
 from galapix_py.tiling import generate_tiles_for_entry, probe_file_entry
@@ -124,7 +125,6 @@ class GalapixPyCoreTests(unittest.TestCase):
                 writer.close()
                 reader.close()
 
-
     def test_database_tile_signature_identifies_the_changed_image(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             database = Database(Path(tmpdir) / "db")
@@ -140,7 +140,6 @@ class GalapixPyCoreTests(unittest.TestCase):
                 self.assertEqual(database.tile_signature(second.file_id), second_signature)
             finally:
                 database.close()
-
 
     def test_database_reads_legacy_cpp_cache_schema_from_sqlite_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1800,6 +1799,201 @@ class GalapixPyCoreTests(unittest.TestCase):
 
         self.assertFalse(image.visible)
         self.assertIn((0, 0, 0), image.cache.tiles)
+
+    def test_viewer_reloads_visible_image_when_cached_entry_changes(self) -> None:
+        class DummyDatabaseThread:
+            def __init__(self) -> None:
+                self.initial_cache_version = 3
+                self.version_callback = None
+                self.snapshot_callback = None
+
+            def poll_deliveries(self) -> int:
+                return 0
+
+            def request_cached_files(self, urls, callback) -> None:
+                self.snapshot_callback = callback
+
+            def request_cache_version(self, callback) -> None:
+                self.version_callback = callback
+
+            def request_tile(self, entry, scale, x, y, callback):
+                raise AssertionError("tile should not be requested")
+
+        db_thread = DummyDatabaseThread()
+        old_entry = FileEntry(1, "/tmp/a.jpg", 100, 10, 256, 256, "jpeg")
+        new_entry = FileEntry(1, "/tmp/a.jpg", 200, 12, 256, 256, "jpeg")
+        image = Image(old_entry.url)
+        image.set_provider(DatabaseTileProvider(db_thread, old_entry))
+        image.visible = True
+        image.cache.receive_tile(TileRecord(1, 0, 0, 0, 64, 64, b"old"))
+        image.cache.process_queue()
+        workspace = Workspace()
+        workspace.add_image(image)
+        viewer = Viewer(ViewerOptions(database=Path("/tmp/db")), workspace, db_thread)
+        texture_key = (image.url, 0, 0, 0)
+        viewer.texture_cache.arrays = None
+        viewer.texture_cache.textures[texture_key] = 41
+        viewer.texture_cache.idle_frames[texture_key] = 0
+        viewer.needs_redraw = False
+
+        viewer.update(Viewer.CACHE_REFRESH_INTERVAL)
+        db_thread.version_callback(3)
+        db_thread.snapshot_callback({image.url: old_entry}, {image.url: b"old"}, 3)
+        viewer.update(Viewer.CACHE_REFRESH_INTERVAL)
+        db_thread.version_callback(4)
+        viewer.update(Viewer.CACHE_CHANGE_DEBOUNCE)
+        db_thread.version_callback(4)
+        with patch("galapix_py.viewer.glDeleteTextures") as delete_textures:
+            db_thread.snapshot_callback({image.url: new_entry}, {image.url: b"new"}, 4)
+
+        self.assertEqual(image.provider.entry, new_entry)
+        self.assertEqual(image.cache.tiles, {})
+        self.assertNotIn(texture_key, viewer.texture_cache.textures)
+        delete_textures.assert_called_once_with([41])
+        self.assertTrue(viewer.needs_redraw)
+
+    def test_viewer_keeps_tiles_when_cached_entry_is_unchanged(self) -> None:
+        class DummyDatabaseThread:
+            def __init__(self) -> None:
+                self.initial_cache_version = 3
+                self.version_callback = None
+                self.snapshot_callback = None
+
+            def poll_deliveries(self) -> int:
+                return 0
+
+            def request_cached_files(self, urls, callback) -> None:
+                self.snapshot_callback = callback
+
+            def request_cache_version(self, callback) -> None:
+                self.version_callback = callback
+
+            def request_tile(self, entry, scale, x, y, callback):
+                raise AssertionError("tile should not be requested")
+
+        db_thread = DummyDatabaseThread()
+        entry = FileEntry(1, "/tmp/a.jpg", 100, 10, 256, 256, "jpeg")
+        image = Image(entry.url)
+        image.set_provider(DatabaseTileProvider(db_thread, entry))
+        image.visible = True
+        original_cache = image.cache
+        workspace = Workspace()
+        workspace.add_image(image)
+        viewer = Viewer(ViewerOptions(database=Path("/tmp/db")), workspace, db_thread)
+
+        viewer.update(Viewer.CACHE_REFRESH_INTERVAL)
+        db_thread.version_callback(3)
+        db_thread.snapshot_callback({image.url: entry}, {image.url: b"same"}, 3)
+
+        self.assertIs(image.cache, original_cache)
+        self.assertEqual(image.provider.entry, entry)
+
+    def test_viewer_reloads_tiles_when_database_changes_without_metadata_change(self) -> None:
+        class DummyDatabaseThread:
+            initial_cache_version = 7
+
+            def __init__(self) -> None:
+                self.version_callback = None
+                self.snapshot_callback = None
+
+            def poll_deliveries(self) -> int:
+                return 0
+
+            def request_cached_files(self, urls, callback) -> None:
+                self.snapshot_callback = callback
+
+            def request_cache_version(self, callback) -> None:
+                self.version_callback = callback
+
+            def request_tile(self, entry, scale, x, y, callback):
+                raise AssertionError("tile should not be requested")
+
+        db_thread = DummyDatabaseThread()
+        entry = FileEntry(1, "/tmp/a.jpg", 100, 10, 256, 256, "jpeg")
+        image = Image(entry.url)
+        image.set_provider(DatabaseTileProvider(db_thread, entry))
+        image.visible = True
+        image.cache.receive_tile(TileRecord(1, 0, 0, 0, 64, 64, b"old"))
+        image.cache.process_queue()
+        workspace = Workspace()
+        workspace.add_image(image)
+        viewer = Viewer(ViewerOptions(database=Path("/tmp/db")), workspace, db_thread)
+        viewer.needs_redraw = False
+
+        viewer.update(Viewer.CACHE_REFRESH_INTERVAL)
+        db_thread.version_callback(7)
+        db_thread.snapshot_callback({image.url: entry}, {image.url: b"old"}, 7)
+        viewer.update(Viewer.CACHE_REFRESH_INTERVAL)
+        db_thread.version_callback(8)
+
+        self.assertNotEqual(image.cache.tiles, {})
+
+        viewer.update(Viewer.CACHE_CHANGE_DEBOUNCE)
+        db_thread.version_callback(8)
+        db_thread.snapshot_callback({image.url: entry}, {image.url: b"new"}, 8)
+
+        self.assertEqual(image.cache.tiles, {})
+        self.assertTrue(viewer.needs_redraw)
+
+    def test_viewer_invalidates_only_the_image_whose_tiles_changed(self) -> None:
+        class DummyDatabaseThread:
+            initial_cache_version = 1
+
+            def __init__(self) -> None:
+                self.snapshot_requests = 0
+
+            def poll_deliveries(self) -> int:
+                return 0
+
+            def request_cache_version(self, callback) -> None:
+                self.version_callback = callback
+
+            def request_cached_files(self, urls, callback) -> None:
+                self.snapshot_requests += 1
+                self.snapshot_callback = callback
+
+            def request_tile(self, entry, scale, x, y, callback):
+                raise AssertionError("tile should not be requested")
+
+        db_thread = DummyDatabaseThread()
+        entries = [
+            FileEntry(1, "/tmp/a.jpg", 100, 10, 256, 256, "jpeg"),
+            FileEntry(2, "/tmp/b.jpg", 100, 10, 256, 256, "jpeg"),
+        ]
+        workspace = Workspace()
+        for entry in entries:
+            image = Image(entry.url)
+            image.set_provider(DatabaseTileProvider(db_thread, entry))
+            image.visible = True
+            image.cache.receive_tile(TileRecord(entry.file_id, 0, 0, 0, 64, 64, b"old"))
+            image.cache.process_queue()
+            workspace.add_image(image)
+        viewer = Viewer(ViewerOptions(database=Path("/tmp/db")), workspace, db_thread)
+
+        viewer.update(Viewer.CACHE_REFRESH_INTERVAL)
+        db_thread.version_callback(1)
+        db_thread.snapshot_callback(
+            {entry.url: entry for entry in entries},
+            {entries[0].url: b"a1", entries[1].url: b"b1"},
+            1,
+        )
+        viewer.update(Viewer.CACHE_REFRESH_INTERVAL)
+        db_thread.version_callback(2)
+        viewer.update(Viewer.CACHE_CHANGE_DEBOUNCE)
+        db_thread.version_callback(3)
+        self.assertEqual(db_thread.snapshot_requests, 1)
+
+        viewer.update(Viewer.CACHE_CHANGE_DEBOUNCE)
+        db_thread.version_callback(3)
+        db_thread.snapshot_callback(
+            {entry.url: entry for entry in entries},
+            {entries[0].url: b"a2", entries[1].url: b"b1"},
+            3,
+        )
+
+        self.assertEqual(workspace.images[0].cache.tiles, {})
+        self.assertNotEqual(workspace.images[1].cache.tiles, {})
+        self.assertEqual(db_thread.snapshot_requests, 2)
 
     def test_viewer_state_move_and_zoom_interpolate_toward_target(self) -> None:
         state = ViewerState()

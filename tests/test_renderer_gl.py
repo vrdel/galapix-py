@@ -7,6 +7,8 @@ SDL_VIDEODRIVER=offscreen PYOPENGL_PLATFORM=egl GALAPIX_TEST_GL=1 \
 
 from io import BytesIO
 import os
+import tempfile
+import time
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -17,7 +19,10 @@ from OpenGL import GL
 from PIL import Image as PILImage
 import sdl2
 
-from galapix_py.models import TileRecord, ViewerOptions
+from galapix_py.database import Database
+from galapix_py.database_thread import DatabaseThread
+from galapix_py.models import FileEntry, TileRecord, ViewerOptions
+from galapix_py.providers import DatabaseTileProvider
 from galapix_py.image import Image, ImageTileCache
 from galapix_py.renderer import RectangleRenderer
 from galapix_py.render_profile import RenderProfiler
@@ -355,6 +360,64 @@ class RendererGLTests(unittest.TestCase):
         self.assertEqual(arrays.pages, {})
         self.assertEqual(arrays.pools, {})
         cache.clear()
+
+    def test_external_tile_replacement_redraws_shared_array_in_core_context(self):
+        with tempfile.TemporaryDirectory() as directory:
+            writer = Database(Path(directory))
+            self.addCleanup(writer.close)
+            images = []
+
+            def tile(entry, color):
+                data = BytesIO()
+                PILImage.new("RGB", (32, 64), color).save(data, format="PNG")
+                return TileRecord(entry.file_id, 0, 0, 0, 32, 64, data.getvalue())
+
+            entries = [writer.store_file_entry(FileEntry(None, f"/tmp/{i}.png", 1, 1, 32, 64, "png"))
+                       for i in range(2)]
+            reader = Database(Path(directory))
+            self.addCleanup(reader.close)
+            thread = DatabaseThread(reader, Mock())
+            for index, (entry, color) in enumerate(zip(entries, ((255, 0, 0), (0, 0, 255)))):
+                record = tile(entry, color)
+                writer.store_tiles(entry.file_id, [record])
+                image = Image(entry.url)
+                image.set_provider(DatabaseTileProvider(thread, entry))
+                image.cache.receive_tile(record)
+                image.process_queues()
+                image.set_absolute(16 + 32 * index, 32, 1)
+                images.append(image)
+            # Ignore setup writes when establishing the baseline.
+            thread.initial_cache_version = reader.data_version()
+            viewer = Viewer(ViewerOptions(database=Path(directory), width=64, height=64), Workspace(images), thread)
+            self.addCleanup(viewer.release_gl_resources)
+            thread.start()
+            self.addCleanup(thread.stop)
+
+            def until(predicate):
+                deadline = time.monotonic() + 3
+                while not predicate() and time.monotonic() < deadline:
+                    viewer.update(0.05)
+                    if viewer.needs_redraw:
+                        viewer.draw()
+                    time.sleep(0.001)
+                self.assertTrue(predicate(), "cache refresh did not finish")
+
+            viewer.draw()
+            until(lambda: len(viewer._cache_snapshots) == 2 and not viewer._cache_refresh_pending)
+            first_key, second_key = [(image.url, 0, 0, 0) for image in images]
+            first_handle = viewer.texture_cache.textures[first_key]
+            second_handle = viewer.texture_cache.textures[second_key]
+            self.assertEqual(first_handle.array_id, second_handle.array_id)
+            self.assertEqual(self.pixel(16, 32), (255, 0, 0))
+            old_cache = images[0].cache
+            writer.store_tiles(entries[0].file_id, [tile(entries[0], (0, 255, 0))])
+            until(lambda: images[0].cache is not old_cache and bool(images[0].cache.tiles)
+                  and first_key in viewer.texture_cache.textures)
+            self.assertEqual(self.pixel(16, 32), (0, 255, 0))
+            self.assertEqual(self.pixel(48, 32), (0, 0, 255))
+            self.assertEqual(viewer.texture_cache.textures[second_key], second_handle)
+            self.assertTrue(GL.glIsTexture(second_handle.array_id))
+            self.assertEqual(GL.glGetError(), GL.GL_NO_ERROR)
 
     def test_failed_array_upload_releases_new_page(self):
         arrays = TileTextureArrays()
