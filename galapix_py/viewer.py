@@ -301,6 +301,7 @@ class Viewer:
         self.options = options
         self.workspace = workspace
         self.db_thread = db_thread
+        self.current_sort = options.sort
         self.state = ViewerState()
         self.profiler = RenderProfiler() if options.profile_render else None
         self.texture_cache = TextureCache(profiler=self.profiler, arrays=TileTextureArrays())
@@ -444,6 +445,11 @@ class Viewer:
             if image.visible and isinstance(image.provider, DatabaseTileProvider)
         ]
         monitored = visible
+        if self.options.resort_on_change and self.current_sort in ("mtime", "mtime-reverse"):
+            monitored = [
+                image for image in self.workspace.images
+                if isinstance(image.provider, DatabaseTileProvider)
+            ]
         if not monitored or self._cache_refresh_pending:
             return
         self._cache_refresh_pending = True
@@ -483,6 +489,7 @@ class Viewer:
                     self._cache_version = version
                 self._cache_change_elapsed = 0.0
                 return
+            metadata_changed_any = False
             for image in images:
                 expected_provider = expected_providers[id(image)]
                 current_provider = image.provider
@@ -500,12 +507,25 @@ class Viewer:
                 self._cache_snapshots[id(image)] = (expected_provider, new_signature, version)
                 if not metadata_changed and not tiles_changed:
                     continue
+                metadata_changed_any = metadata_changed_any or metadata_changed
                 if image.cache is not None:
                     image.cache.clear()
                 image.set_provider(DatabaseTileProvider(self.db_thread, entry))
                 self._cache_snapshots[id(image)] = (image.provider, new_signature, version)
                 self._invalidate_image_textures(image)
                 self.needs_redraw = True
+
+            if (
+                metadata_changed_any
+                and self.options.resort_on_change
+                and self.current_sort in ("mtime", "mtime-reverse")
+            ):
+                self.workspace.sort_by_mtime(reverse=self.current_sort == "mtime-reverse")
+                self.workspace.layout_row(
+                    spacing=40.0 * max(1, self.options.spacing),
+                    max_per_row=self.options.images_per_row,
+                    images=self.workspace.filtered_images() if self.has_active_filter() else None,
+                )
 
             self._cache_change_elapsed = None
 

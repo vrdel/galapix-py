@@ -45,6 +45,7 @@ def main() -> int:
     parser.add_argument("-g", "--geometry", default="1280x720")
     parser.add_argument("-f", "--fullscreen", action="store_true")
     parser.add_argument("--sort", choices=("name", "name-reverse", "mtime", "mtime-reverse", "url", "url-reverse"))
+    parser.add_argument("--resort-on-change", action="store_true", help="relayout images when cached metadata changes while sorting by mtime")
     parser.add_argument("--images-per-row", type=int, default=None)
     parser.add_argument("--spacing", type=int, default=1)
     parser.add_argument("--background-color", type=parse_background_color, default=None)
@@ -70,6 +71,7 @@ def main() -> int:
         height=height,
         fullscreen=args.fullscreen,
         sort=args.sort,
+        resort_on_change=args.resort_on_change,
         images_per_row=args.images_per_row,
         spacing=max(1, args.spacing),
         background_color=args.background_color,

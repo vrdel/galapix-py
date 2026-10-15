@@ -102,6 +102,7 @@ Available on `galapix-view` and `galapix-py view`:
 - `-g`, `--geometry WxH`: initial window size
 - `-f`, `--fullscreen`: start fullscreen
 - `--sort {name,name-reverse,mtime,mtime-reverse,url,url-reverse}`: startup ordering for direct image views
+- `--resort-on-change`: when the active sort is by mtime, reposition images after their cached metadata changes (enabled by the `galapix-exe.py view` shortcut)
 - `--images-per-row N`: wrap after `N` images; default is auto-wrap into a square-ish grid
 - `--spacing N`: row spacing multiplier, where `1` is the default gap
 - `--case-insensitive-sort`: make name sorting (key `1`) case-insensitive
@@ -290,7 +291,7 @@ While a viewer is open, it checks SQLite for commits from other connections ever
 0.5 seconds. After writes settle for 0.5 seconds, it compares cached metadata and
 tile contents in the database worker and reloads changed images, including changes
 that leave file metadata untouched. Images outside the view are checked when they
-return to the view.
+return; `--resort-on-change` also monitors hidden images during mtime sorting.
 Source-file edits become visible once a preparation process updates the same cache.
 The OpenGL core renderer flushes queued draws before releasing changed images'
 texture-array layers, preserving other images that share a texture page.

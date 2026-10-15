@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import importlib.resources
 import io
+import os
 import sqlite3
 import subprocess
 import sys
@@ -1214,6 +1215,13 @@ class GalapixPyCoreTests(unittest.TestCase):
         args = parser.parse_args(["view", "--sort", "mtime-reverse"])
         self.assertEqual(args.sort, "mtime-reverse")
 
+    def test_cli_accepts_resort_on_change(self) -> None:
+        from galapix_py.cli import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["view", "--resort-on-change"])
+        self.assertTrue(args.resort_on_change)
+
     def test_cli_accepts_view_url_sort(self) -> None:
         from galapix_py.cli import build_parser
 
@@ -1851,6 +1859,50 @@ class GalapixPyCoreTests(unittest.TestCase):
         self.assertNotIn(texture_key, viewer.texture_cache.textures)
         delete_textures.assert_called_once_with([41])
         self.assertTrue(viewer.needs_redraw)
+
+    def test_viewer_resorts_mtime_workspace_when_cached_entry_changes(self) -> None:
+        class DummyDatabaseThread:
+            initial_cache_version = 1
+
+            def request_cached_files(self, urls, callback) -> None:
+                self.snapshot_callback = callback
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            first_path = base / "first.jpg"
+            second_path = base / "second.jpg"
+            first_path.touch()
+            second_path.touch()
+            os.utime(first_path, ns=(100, 100))
+            os.utime(second_path, ns=(200, 200))
+
+            db_thread = DummyDatabaseThread()
+            old_first = FileEntry(1, str(first_path), 100, 10, 256, 256, "jpeg")
+            new_first = FileEntry(1, str(first_path), 300, 12, 256, 256, "jpeg")
+            second_entry = FileEntry(2, str(second_path), 200, 10, 256, 256, "jpeg")
+            first = Image(old_first.url)
+            second = Image(second_entry.url)
+            first.set_provider(DatabaseTileProvider(db_thread, old_first))
+            second.set_provider(DatabaseTileProvider(db_thread, second_entry))
+            workspace = Workspace([first, second])
+            options = ViewerOptions(
+                database=base / "db",
+                sort="mtime",
+                resort_on_change=True,
+            )
+            viewer = Viewer(options, workspace, db_thread)
+            os.utime(first_path, ns=(300, 300))
+
+            viewer._request_cache_snapshot([first, second])
+            db_thread.snapshot_callback(
+                {first.url: new_first, second.url: second_entry},
+                {first.url: b"new", second.url: b"same"},
+                1,
+            )
+
+            self.assertEqual(workspace.images, [second, first])
+            self.assertEqual(first.provider.entry, new_first)
+            self.assertLess(second.placement.target_x, first.placement.target_x)
 
     def test_viewer_keeps_tiles_when_cached_entry_is_unchanged(self) -> None:
         class DummyDatabaseThread:
@@ -3141,6 +3193,7 @@ class CliViewTests(unittest.TestCase):
             "-p", "sample",
             "--ignore-pattern-case",
             "--sort", "url-reverse",
+            "--resort-on-change",
             "--geometry", "1920x1080",
             "--spacing", "3",
             "--background-color", "#4b5262",
@@ -3168,6 +3221,7 @@ class CliViewTests(unittest.TestCase):
         self.assertEqual(opts.threads, 8)
         self.assertTrue(opts.ignore_pattern_case)
         self.assertEqual(opts.sort, "url-reverse")
+        self.assertTrue(opts.resort_on_change)
         self.assertEqual(opts.width, 1920)
         self.assertEqual(opts.height, 1080)
         self.assertEqual(opts.spacing, 3)
@@ -3202,6 +3256,7 @@ class CliViewTests(unittest.TestCase):
         self.assertFalse(opts.temp_cache)
         self.assertFalse(opts.prepare_with_rust)
         self.assertIsNone(opts.sort)
+        self.assertFalse(opts.resort_on_change)
         self.assertIsNone(opts.background_color)
         self.assertIsNone(opts.quit_key)
 
