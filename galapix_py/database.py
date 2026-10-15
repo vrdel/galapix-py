@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import math
 import sqlite3
 from contextlib import contextmanager
@@ -56,6 +57,35 @@ class Database:
     def close(self) -> None:
         self.conn.commit()
         self.conn.close()
+
+    def data_version(self) -> int:
+        """Return SQLite's revision counter for commits made by other connections."""
+        row = self.conn.execute("PRAGMA data_version").fetchone()
+        return int(row[0])
+
+    def tile_signature(self, file_id: int) -> bytes:
+        """Return a stable digest of the cached tiles belonging to one image."""
+        file_column = "fileid" if self.legacy_schema else "file_id"
+        data_column = "data" if self.legacy_schema else "jpeg_bytes"
+        dimension_columns = "" if self.legacy_schema else ", width, height"
+        rows = self.conn.execute(
+            f"""
+            SELECT scale, x, y{dimension_columns}, {data_column} AS tile_bytes
+            FROM tiles WHERE {file_column} = ? ORDER BY scale, x, y
+            """,
+            (file_id,),
+        )
+        digest = hashlib.blake2b(digest_size=16)
+        for row in rows:
+            values = [int(row["scale"]), int(row["x"]), int(row["y"])]
+            if not self.legacy_schema:
+                values.extend((int(row["width"]), int(row["height"])))
+            for value in values:
+                digest.update(value.to_bytes(8, byteorder="little", signed=True))
+            tile_bytes = bytes(row["tile_bytes"])
+            digest.update(len(tile_bytes).to_bytes(8, byteorder="little"))
+            digest.update(tile_bytes)
+        return digest.digest()
 
     def cleanup(self) -> None:
         self.conn.execute("DELETE FROM files")

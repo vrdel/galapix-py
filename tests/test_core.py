@@ -18,7 +18,7 @@ from PIL import Image as PILImage
 from galapix_py.app import GalapixApp
 from galapix_py.database import Database
 from galapix_py.image import Image, ImageTileCache
-from galapix_py.models import TileRecord, ViewerOptions
+from galapix_py.models import FileEntry, TileRecord, ViewerOptions
 from galapix_py.sdl_viewer import LiveRenderValidation, SDLViewer, configure_app_identity_hint, enable_vsync, quit_key_matches, set_x11_window_class
 from galapix_py import tiling
 from galapix_py.tiling import generate_tiles_for_entry, probe_file_entry
@@ -110,6 +110,38 @@ class GalapixPyCoreTests(unittest.TestCase):
             finally:
                 database.close()
 
+    def test_database_data_version_detects_external_cache_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            image_path = make_test_jpeg(base)
+            reader = Database(base / "db")
+            writer = Database(base / "db")
+            try:
+                initial_version = reader.data_version()
+                writer.store_file_entry(probe_file_entry(image_path))
+                self.assertNotEqual(reader.data_version(), initial_version)
+            finally:
+                writer.close()
+                reader.close()
+
+
+    def test_database_tile_signature_identifies_the_changed_image(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            database = Database(Path(tmpdir) / "db")
+            try:
+                first = database.store_file_entry(FileEntry(None, "/tmp/a.jpg", 1, 1, 64, 64, "jpeg"))
+                second = database.store_file_entry(FileEntry(None, "/tmp/b.jpg", 1, 1, 64, 64, "jpeg"))
+                first_signature = database.tile_signature(first.file_id)
+                second_signature = database.tile_signature(second.file_id)
+
+                database.store_tiles(first.file_id, [TileRecord(first.file_id, 0, 0, 0, 64, 64, b"new")])
+
+                self.assertNotEqual(database.tile_signature(first.file_id), first_signature)
+                self.assertEqual(database.tile_signature(second.file_id), second_signature)
+            finally:
+                database.close()
+
+
     def test_database_reads_legacy_cpp_cache_schema_from_sqlite_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
@@ -171,6 +203,10 @@ class GalapixPyCoreTests(unittest.TestCase):
                 self.assertEqual((tile.width, tile.height), (44, 4))
                 self.assertEqual(database.get_min_max_scale(1), (0, 0))
                 self.assertEqual(database.count_tiles_for_file(1), 1)
+                signature = database.tile_signature(1)
+                database.conn.execute("UPDATE tiles SET data = ? WHERE fileid = 1", (b"replacement",))
+                database.conn.commit()
+                self.assertNotEqual(database.tile_signature(1), signature)
             finally:
                 database.close()
 
