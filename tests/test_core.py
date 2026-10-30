@@ -1008,6 +1008,24 @@ class GalapixPyCoreTests(unittest.TestCase):
         self.assertTrue(alpha.selected)
         self.assertFalse(bravo.selected)
 
+    def test_workspace_filtered_selection_preserves_hidden_images(self) -> None:
+        hidden = Image("/tmp/dog.jpg", selected=True)
+        first = Image("/tmp/cat-one.jpg")
+        second = Image("/tmp/cat-two.jpg")
+        first.set_absolute(50.0, 50.0, 1.0)
+        second.set_absolute(200.0, 50.0, 1.0)
+        workspace = Workspace(images=[hidden, first, second], search_query="cat")
+
+        workspace.select_at(50.0, 50.0)
+        self.assertEqual(workspace.selected_images(), [hidden, first])
+        workspace.select_at(200.0, 50.0)
+        self.assertEqual(workspace.selected_images(), [hidden, second])
+        workspace.select_at(200.0, 50.0)
+        self.assertEqual(workspace.selected_images(), [hidden])
+        workspace.select_at(50.0, 50.0)
+        workspace.select_at(10000.0, 10000.0)
+        self.assertEqual(workspace.selected_images(), [hidden])
+
     def test_workspace_select_at_toggles_off_selected_image_without_ctrl(self) -> None:
         workspace = Workspace()
         alpha = Image("/tmp/alpha.jpg")
@@ -2667,6 +2685,42 @@ class GalapixPyCoreTests(unittest.TestCase):
                     self.assertTrue(viewer.keyboard_selection_active)
                     self.assertTrue(images[1].selected)
                     self.assertEqual(focused.selected, select_focused)
+
+    def test_viewer_preserves_selection_across_multiple_searches(self) -> None:
+        for keyboard in (False, True):
+            with self.subTest(keyboard=keyboard):
+                images = [Image(f"/tmp/{name}.jpg") for name in (
+                    "cat-one", "cat-two", "dog-one", "dog-two", "other",
+                )]
+                workspace = Workspace(images=images)
+                viewer = Viewer(ViewerOptions(database=Path("/tmp/db")), workspace, None)
+                if keyboard:
+                    viewer.toggle_keyboard_selection_mode()
+
+                for query in ("cat", "dog"):
+                    viewer.set_search_query(query)
+                    # Typing through an empty result must not discard earlier choices.
+                    viewer.set_search_query(query + "-missing")
+                    viewer.set_search_query(query)
+                    workspace.update(1.0)
+                    matches = workspace.filtered_images()
+                    if keyboard:
+                        viewer.keyboard_selection_index = 0
+                        viewer.toggle_keyboard_selection_image()
+                        viewer.move_keyboard_selection(1, 0)
+                        viewer.toggle_keyboard_selection_image()
+                    else:
+                        for index, image in enumerate(matches):
+                            workspace.select_at(image.placement.x, image.placement.y, toggle=index > 0)
+                    viewer.close_search(clear=True)
+                    expected = images[:2] if query == "cat" else images[:4]
+                    self.assertEqual(workspace.selected_images(), expected)
+                    self.assertEqual(workspace.filtered_images(), images)
+
+                viewer.set_search_query("other")
+                viewer.set_search_query("cat")
+                viewer.close_search(clear=True)
+                self.assertEqual(workspace.selected_images(), images[:4])
 
     def test_viewer_status_text_reports_search_filter(self) -> None:
         workspace = Workspace()

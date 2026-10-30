@@ -900,7 +900,6 @@ class Viewer:
             self._capture_search_layout()
         self.search_query = normalized
         self.workspace.set_search_query(normalized)
-        self._clear_filtered_out_selection()
         if normalized:
             self._layout_search_results()
         elif previous_query:
@@ -946,12 +945,6 @@ class Viewer:
             max_per_row=self.options.images_per_row,
             images=filtered,
         )
-
-    def _clear_filtered_out_selection(self) -> None:
-        filtered_ids = {id(image) for image in self.workspace.filtered_images()}
-        for image in self.workspace.images:
-            if image.selected and id(image) not in filtered_ids:
-                image.selected = False
 
     def _draw_image(self, image: Image, stats: FrameRenderStats) -> None:
         img_left, img_top, img_right, img_bottom = image.rect()

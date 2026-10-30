@@ -231,6 +231,7 @@ Selection and editing:
     - `Backspace`: delete one search character while the search box is open
     - `Enter`: close the search box and keep the current filter
     - `Esc`: close the search box and clear the current filter
+    - Selections persist across searches and returning to the full view; selection clicks in filtered results preserve selections hidden by the filter
 - `Delete`: delete current selection from the workspace
 - `F5`: refresh selected images from disk / database
 - `o` or `Middle click`: open selected images in a separate viewer window inheriting current view options
