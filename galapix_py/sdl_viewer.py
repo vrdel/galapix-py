@@ -502,6 +502,10 @@ class SDLViewer:
             shift = bool(modifiers & sdl2.KMOD_SHIFT)
             if ctrl and sym == sdl2.SDLK_e:
                 self.viewer.toggle_keyboard_selection_mode()
+            elif sym == sdl2.SDLK_SLASH:
+                self.viewer.open_search()
+                self._suppress_opening_search_text = True
+                sdl2.SDL_StartTextInput()
             elif getattr(self.viewer, "keyboard_selection_active", False):
                 if shift and self._pan_by_keyboard_shortcut(sym):
                     pass
@@ -522,10 +526,6 @@ class SDLViewer:
                     self._open_selected_image_window()
             elif (quit_key is None and sym == sdl2.SDLK_ESCAPE) or quit_key_matches(quit_key, sym, modifiers):
                 self.running = False
-            elif sym == sdl2.SDLK_SLASH:
-                self.viewer.open_search()
-                self._suppress_opening_search_text = True
-                sdl2.SDL_StartTextInput()
             elif sym == sdl2.SDLK_x:
                 self.viewer.zoom_to_selection()
                 self.viewer.request_redraw()

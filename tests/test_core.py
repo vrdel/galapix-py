@@ -2221,6 +2221,48 @@ class GalapixPyCoreTests(unittest.TestCase):
         self.assertTrue(viewer.opened)
         start_text_input.assert_called_once_with()
 
+    def test_keyboard_selection_can_search_again_without_losing_selection(self) -> None:
+        images = [Image(f"/tmp/{name}.jpg") for name in ("cat", "dog")]
+        workspace = Workspace(images=images)
+        viewer = Viewer(ViewerOptions(database=Path("/tmp/db")), workspace, None)
+        sdl_viewer = SDLViewer(viewer)
+
+        def keydown(sym: int, mod: int = 0) -> None:
+            event = type("Event", (), {})()
+            event.type = 1
+            event.key = type("Key", (), {"keysym": type("Keysym", (), {"sym": sym, "mod": mod})()})()
+            sdl_viewer._process_event(event)
+
+        with (
+            patch("galapix_py.sdl_viewer.sdl2.SDL_KEYDOWN", 1),
+            patch("galapix_py.sdl_viewer.sdl2.KMOD_CTRL", 64),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_e", 101),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_SLASH", 47),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_RETURN", 13),
+            patch("galapix_py.sdl_viewer.sdl2.SDLK_ESCAPE", 27),
+            patch("galapix_py.sdl_viewer.sdl2.SDL_StartTextInput") as start_text_input,
+            patch("galapix_py.sdl_viewer.sdl2.SDL_StopTextInput") as stop_text_input,
+        ):
+            keydown(101, 64)
+            for index, query in enumerate(("cat", "dog")):
+                keydown(47)
+                self.assertTrue(viewer.search_active)
+                self.assertTrue(sdl_viewer._suppress_opening_search_text)
+                viewer.append_search_text(query)
+                keydown(13)  # Close search, retaining the filter.
+                keydown(13)  # Select the matching image.
+                self.assertEqual(workspace.selected_images(), images[:index + 1])
+                keydown(47)
+                self.assertTrue(viewer.search_active)
+                keydown(27)  # Return to the full view without leaving selection mode.
+                self.assertFalse(viewer.search_active)
+                self.assertTrue(viewer.keyboard_selection_active)
+                self.assertEqual(workspace.filtered_images(), images)
+                self.assertEqual(workspace.selected_images(), images[:index + 1])
+
+        self.assertEqual(start_text_input.call_count, 4)
+        self.assertEqual(stop_text_input.call_count, 4)
+
     def test_text_input_appends_search_query_immediately(self) -> None:
         class DummyViewer:
             def __init__(self) -> None:

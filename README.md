@@ -228,6 +228,7 @@ Selection and editing:
     - `o`: open selected images while staying in keyboard selection mode
     - A bottom-left badge indicates selection mode; selected images are tinted green and the focused image is tinted yellow
 - `/`: open live filename search; typing filters visible images immediately
+    - Also works in keyboard selection mode, preserving the mode and current selection
     - `Backspace`: delete one search character while the search box is open
     - `Enter`: close the search box and keep the current filter
     - `Esc`: close the search box and clear the current filter
