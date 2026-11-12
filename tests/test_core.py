@@ -992,6 +992,26 @@ class GalapixPyCoreTests(unittest.TestCase):
             ["bravo-cat.png"],
         )
 
+    def test_workspace_search_supports_filename_regexes(self) -> None:
+        images = [Image(f"/tmp/cat-directory/{name}") for name in (
+            "Cat-01.JPG", "dog-12.png", "cat-notes.png", "photo[1].jpg", "other.jpeg",
+        )]
+        workspace = Workspace(images=images)
+        for pattern, indices in (
+            (r"cat|dog", [0, 1, 2]),
+            (r"^cat-\d+\.jpg$", [0]),
+            (r"\.png$", [1, 2]),
+            (r"photo\[1\]", [3]),
+            (r"^(cat|dog)-[0-9]{2}\.", [0, 1]),
+            (r"(?-i:Cat)", [0]),
+            (r"^cat-directory", []),
+            ("", [0, 1, 2, 3, 4]),
+        ):
+            with self.subTest(pattern=pattern):
+                workspace.set_search_query(pattern)
+                self.assertIsNone(workspace.search_error)
+                self.assertEqual(workspace.filtered_images(), [images[index] for index in indices])
+
     def test_workspace_select_at_ignores_filtered_out_images(self) -> None:
         workspace = Workspace()
         alpha = Image("/tmp/alpha.jpg")

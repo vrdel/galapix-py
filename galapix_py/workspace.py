@@ -1,10 +1,20 @@
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 
 from .image import Image
+
+
+@lru_cache(maxsize=128)
+def _compile_search(query: str) -> tuple[re.Pattern[str] | None, str | None]:
+    try:
+        return re.compile(query, re.IGNORECASE), None
+    except re.error as error:
+        return None, str(error)
 
 
 @dataclass(slots=True)
@@ -55,10 +65,15 @@ class Workspace:
     def has_active_search(self) -> bool:
         return bool(self.search_query)
 
+    @property
+    def search_error(self) -> str | None:
+        return _compile_search(self.search_query)[1]
+
     def matches_search(self, image: Image) -> bool:
         if not self.search_query:
             return True
-        return self.search_query.casefold() in Path(image.url).name.casefold()
+        pattern, _ = _compile_search(self.search_query)
+        return pattern is not None and pattern.search(Path(image.url).name) is not None
 
     def filtered_images(self) -> list[Image]:
         if not self.search_query:
