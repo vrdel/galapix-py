@@ -1012,6 +1012,31 @@ class GalapixPyCoreTests(unittest.TestCase):
                 self.assertIsNone(workspace.search_error)
                 self.assertEqual(workspace.filtered_images(), [images[index] for index in indices])
 
+    def test_viewer_invalid_regex_recovers_and_preserves_selection_and_layout(self) -> None:
+        images = [Image("/tmp/cat.jpg", selected=True), Image("/tmp/dog.png")]
+        for index, image in enumerate(images):
+            image.set_absolute(200.0 * index, 300.0, 0.5)
+        placements = [(image.placement.x, image.placement.y, image.placement.scale) for image in images]
+        workspace = Workspace(images=images)
+        viewer = Viewer(ViewerOptions(database=Path("/tmp/db")), workspace, None)
+        for query in ("[", "(", "*", "\\"):
+            with self.subTest(query=query):
+                viewer.set_search_query(query)
+                self.assertIsNotNone(workspace.search_error)
+                self.assertEqual(workspace.filtered_images(), [])
+                self.assertFalse(workspace.matches_search(images[0]))
+                self.assertIn("invalid regex:", viewer.search_filter_text())
+                self.assertEqual(workspace.selected_images(), images[:1])
+        viewer.set_search_query(r"\.(jpg|png)$")
+        self.assertIsNone(workspace.search_error)
+        self.assertEqual(workspace.filtered_images(), images)
+        viewer.close_search(clear=True)
+        self.assertEqual(workspace.selected_images(), images[:1])
+        self.assertEqual(
+            [(image.placement.x, image.placement.y, image.placement.scale) for image in images],
+            placements,
+        )
+
     def test_workspace_select_at_ignores_filtered_out_images(self) -> None:
         workspace = Workspace()
         alpha = Image("/tmp/alpha.jpg")

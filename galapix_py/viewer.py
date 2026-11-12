@@ -497,7 +497,10 @@ class Viewer:
         return "".join(parts)
 
     def search_filter_text(self) -> str:
-        return f'filtered={len(self.workspace.filtered_images())} search="{self.search_query}"'
+        text = f'filtered={len(self.workspace.filtered_images())} search="{self.search_query}"'
+        if self.workspace.search_error:
+            text += f" invalid regex: {self.workspace.search_error}"
+        return text
 
     def _clear_text_textures(self) -> None:
         textures = [label.texture_id for label in self.label_textures.values()]
@@ -773,8 +776,9 @@ class Viewer:
         self._draw_textured_rect(label.texture_id, label_left, label_top, label_right, label_bottom, 0.0, 0.0, u1, 1.0)
 
     def _draw_search_overlay(self) -> None:
-        title = self._get_overlay_texture("search_title", "Search", SEARCH_FONT_SIZE)
-        min_title_width, _ = _measure_text("Filename contains", SEARCH_FONT_SIZE)
+        title_text = "Search regex (invalid)" if self.workspace.search_error else "Search regex"
+        title = self._get_overlay_texture("search_title", title_text, SEARCH_FONT_SIZE)
+        min_title_width, _ = _measure_text("Filename regex", SEARCH_FONT_SIZE)
         query = self._get_overlay_texture("search_query", self.search_query or " ", SEARCH_FONT_SIZE)
         min_query_width, _ = _measure_text("M" * 10, SEARCH_FONT_SIZE)
         _, min_query_height = _measure_text("Mg", SEARCH_FONT_SIZE)
@@ -785,7 +789,7 @@ class Viewer:
         query_box_color = self.search_query_box_color()
         query_display_width = max(query.width, min_query_width)
         query_display_height = max(query.height, min_query_height)
-        width = max(min_title_width, query_display_width + 20) + pad * 2.0
+        width = max(title.width, min_title_width, query_display_width + 20) + pad * 2.0
         height = (
             pad * 2.0
             + title.height

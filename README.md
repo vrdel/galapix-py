@@ -229,6 +229,7 @@ Selection and editing:
     - A bottom-left badge indicates selection mode; selected images are tinted green and the focused image is tinted yellow
 - `/`: open live filename search; typing filters visible images immediately
     - Patterns are case-insensitive regular expressions matched against filenames, e.g. `cat|dog`, `^holiday`, or `\.png$`; escape special characters to match them literally, e.g. `photo\[1\]`
+    - Invalid or incomplete regexes show an error and no results until corrected; selections are preserved
     - Also works in keyboard selection mode, preserving the mode and current selection
     - `Backspace`: delete one search character while the search box is open
     - `Enter`: close the search box and keep the current filter
