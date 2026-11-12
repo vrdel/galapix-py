@@ -1,4 +1,4 @@
-"""Best-effort release of unused allocator pages after explicit cache clearing."""
+"""Best-effort release of unused allocator pages after image work or cache clearing."""
 
 import ctypes
 import sys
@@ -8,8 +8,8 @@ def release_unused_memory() -> bool:
     """Ask glibc to return free heap pages to the OS, when available.
 
     Clearing Python objects does not necessarily reduce RSS: glibc can keep
-    their storage in worker-thread arenas. This is deliberately an explicit
-    operation rather than part of rendering or individual tile eviction.
+    their storage in worker-thread arenas. Call after a quiet batch of image
+    jobs or explicit cache clearing, rather than for each tile or frame.
     """
     if not sys.platform.startswith("linux"):
         return False

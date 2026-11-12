@@ -93,6 +93,7 @@ class DatabaseThread:
                 break
             if callback() is not False:
                 processed += 1
+        self.jobs.release_idle_memory()
         return processed
 
     def _run(self) -> None:

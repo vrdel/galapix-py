@@ -251,6 +251,8 @@ Layout and ordering:
 
 Display and debug:
 
+On Linux with glibc, unused heap memory is automatically returned to the OS one second after background image jobs finish, at most once every five seconds. This preserves live image and texture caches.
+
 - `b`: cycle background color forward
 - `Shift+b`: cycle background color backward
 - `F1`: toggle status overlay in the window title
