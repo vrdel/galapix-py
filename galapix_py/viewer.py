@@ -45,6 +45,7 @@ from OpenGL.GL import (
 
 from .database_thread import DatabaseThread
 from .image import Image
+from .memory import release_unused_memory
 from .models import ViewerOptions
 from .providers import DatabaseTileProvider
 from .renderer import RectangleRenderer
@@ -667,6 +668,7 @@ class Viewer:
             image.visible = False
         self.texture_cache.clear()
         self._clear_text_textures()
+        release_unused_memory()
         self.request_redraw()
 
     def print_visible_images(self) -> None:

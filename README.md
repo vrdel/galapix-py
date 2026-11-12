@@ -255,6 +255,7 @@ Display and debug:
 - `Shift+b`: cycle background color backward
 - `F1`: toggle status overlay in the window title
 - `c`: clear CPU tile caches and OpenGL textures
+    - On Linux with glibc, also return unused heap pages to the OS with `malloc_trim(0)` to reduce retained RSS. Visible tiles reload on redraw; other allocators and platforms skip the trim.
 - `Space`: print visible image URLs to the terminal
 - `0`: print workspace/runtime info to the terminal
 
