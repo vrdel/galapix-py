@@ -25,6 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
             cmd.add_argument("-g", "--geometry", default="1280x720")
             cmd.add_argument("-f", "--fullscreen", action="store_true")
             cmd.add_argument("--sort", choices=("name", "name-reverse", "mtime", "mtime-reverse", "url", "url-reverse"))
+            cmd.add_argument("--resort-on-change", action="store_true", help="relayout images when cached metadata changes while sorting by mtime")
             cmd.add_argument("--images-per-row", type=int, default=None)
             cmd.add_argument("--spacing", type=int, default=1)
             cmd.add_argument("--background-color", type=parse_background_color, default=None)
@@ -113,6 +114,7 @@ def main() -> int:
         height=height,
         fullscreen=getattr(args, "fullscreen", False),
         sort=getattr(args, "sort", None),
+        resort_on_change=getattr(args, "resort_on_change", False),
         images_per_row=getattr(args, "images_per_row", None),
         spacing=max(1, getattr(args, "spacing", 1)),
         background_color=getattr(args, "background_color", None),

@@ -28,6 +28,7 @@ VIEW_DEFAULTS = [
     "--geometry", DEFAULT_GEOMETRY,
     "--show-filenames",
     "--ignore-pattern-case",
+    "--resort-on-change",
 ]
 
 

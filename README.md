@@ -102,6 +102,7 @@ Available on `galapix-view` and `galapix-py view`:
 - `-g`, `--geometry WxH`: initial window size
 - `-f`, `--fullscreen`: start fullscreen
 - `--sort {name,name-reverse,mtime,mtime-reverse,url,url-reverse}`: startup ordering for direct image views
+- `--resort-on-change`: when the active sort is by mtime, reposition images after their cached metadata changes (enabled by the `galapix-exe.py view` shortcut)
 - `--images-per-row N`: wrap after `N` images; default is auto-wrap into a square-ish grid
 - `--spacing N`: row spacing multiplier, where `1` is the default gap
 - `--case-insensitive-sort`: make name sorting (key `1`) case-insensitive
@@ -250,10 +251,13 @@ Layout and ordering:
 
 Display and debug:
 
+On Linux with glibc, unused heap memory is automatically returned to the OS one second after background image jobs finish, at most once every five seconds. This preserves live image and texture caches.
+
 - `b`: cycle background color forward
 - `Shift+b`: cycle background color backward
 - `F1`: toggle status overlay in the window title
 - `c`: clear CPU tile caches and OpenGL textures
+    - On Linux with glibc, also return unused heap pages to the OS with `malloc_trim(0)` to reduce retained RSS. Visible tiles reload on redraw; other allocators and platforms skip the trim.
 - `Space`: print visible image URLs to the terminal
 - `0`: print workspace/runtime info to the terminal
 
@@ -284,3 +288,13 @@ Quit:
   - title-based status overlay
   - optional filename labels above images
   - live render validation mode
+  - automatic live reload when displayed image tiles are replaced in the SQLite cache
+
+While a viewer is open, it checks SQLite for commits from other connections every
+0.5 seconds. After writes settle for 0.5 seconds, it compares cached metadata and
+tile contents in the database worker and reloads changed images, including changes
+that leave file metadata untouched. Images outside the view are checked when they
+return; `--resort-on-change` also monitors hidden images during mtime sorting.
+Source-file edits become visible once a preparation process updates the same cache.
+The OpenGL core renderer flushes queued draws before releasing changed images'
+texture-array layers, preserving other images that share a texture page.

@@ -12,6 +12,8 @@ from .tiling import generate_tiles_for_entry, preload_tile, probe_file_entry
 
 
 FileCallback = Callable[[FileEntry], None]
+CacheVersionCallback = Callable[[int], None]
+CachedFilesCallback = Callable[[dict[str, FileEntry], dict[str, bytes], int | None], None]
 TileCallback = Callable[[FileEntry, TileRecord], None]
 SingleTileCallback = Callable[[TileRecord], None]
 
@@ -21,6 +23,17 @@ class RequestFile:
     url: str
     file_callback: FileCallback
     tile_callback: Optional[TileCallback]
+
+
+@dataclass(slots=True)
+class RequestCachedFiles:
+    urls: tuple[str, ...]
+    callback: CachedFilesCallback
+
+
+@dataclass(slots=True)
+class RequestCacheVersion:
+    callback: CacheVersionCallback
 
 
 @dataclass(slots=True)
@@ -38,12 +51,15 @@ class DatabaseThread:
         self.database = database
         self.jobs = jobs
         self.requests: queue.Queue[object] = queue.Queue()
-        self.deliveries: queue.Queue[Callable[[], None]] = queue.Queue()
+        # Cache checks return False: they request redraws themselves only when
+        # something changed. Normal file/tile deliveries return None.
+        self.deliveries: queue.Queue[Callable[[], bool | None]] = queue.Queue()
         self.stop_event = threading.Event()
         self.thread = threading.Thread(target=self._run, name="database-thread", daemon=True)
         self._generation_lock = threading.Lock()
         self._tile_generations: set[tuple[str, int]] = set()
         self._pending_tile_requests: dict[tuple[str, int], list[RequestTile]] = {}
+        self.initial_cache_version = database.data_version()
 
     def start(self) -> None:
         self.thread.start()
@@ -56,20 +72,28 @@ class DatabaseThread:
     def request_file(self, url: str, file_callback: FileCallback, tile_callback: Optional[TileCallback] = None) -> None:
         self.requests.put(RequestFile(url=url, file_callback=file_callback, tile_callback=tile_callback))
 
+    def request_cached_files(self, urls: tuple[str, ...], callback: CachedFilesCallback) -> None:
+        """Return per-image cache snapshots without probing source files."""
+        self.requests.put(RequestCachedFiles(urls=urls, callback=callback))
+
+    def request_cache_version(self, callback: CacheVersionCallback) -> None:
+        self.requests.put(RequestCacheVersion(callback=callback))
+
     def request_tile(self, entry: FileEntry, scale: int, x: int, y: int, callback: SingleTileCallback) -> JobHandle:
         handle = JobHandle()
         self.requests.put(RequestTile(entry=entry, scale=scale, x=x, y=y, handle=handle, callback=callback))
         return handle
 
-    def poll_deliveries(self, limit: int = 128) -> None:
+    def poll_deliveries(self, limit: int = 128) -> int:
         processed = 0
         for _ in range(limit):
             try:
                 callback = self.deliveries.get_nowait()
             except queue.Empty:
                 break
-            callback()
-            processed += 1
+            if callback() is not False:
+                processed += 1
+        self.jobs.release_idle_memory()
         return processed
 
     def _run(self) -> None:
@@ -82,8 +106,42 @@ class DatabaseThread:
                 continue
             if isinstance(message, RequestFile):
                 self._handle_request_file(message)
+            elif isinstance(message, RequestCachedFiles):
+                self._handle_request_cached_files(message)
+            elif isinstance(message, RequestCacheVersion):
+                self._handle_request_cache_version(message)
             elif isinstance(message, RequestTile):
                 self._handle_request_tile(message)
+
+    def _handle_request_cached_files(self, message: RequestCachedFiles) -> None:
+        version_before = self.database.data_version()
+        entries = {
+            url: entry
+            for url in message.urls
+            if (entry := self.database.get_file_entry(url)) is not None
+        }
+        signatures = {
+            url: self.database.tile_signature(entry.file_id)
+            for url, entry in entries.items()
+            if entry.file_id is not None
+        }
+        version_after = self.database.data_version()
+        snapshot_version = version_after if version_after == version_before else None
+
+        def deliver() -> bool:
+            message.callback(entries, signatures, snapshot_version)
+            return False
+
+        self.deliveries.put(deliver)
+
+    def _handle_request_cache_version(self, message: RequestCacheVersion) -> None:
+        version = self.database.data_version()
+
+        def deliver() -> bool:
+            message.callback(version)
+            return False
+
+        self.deliveries.put(deliver)
 
     def _handle_request_file(self, message: RequestFile) -> None:
         entry = self.database.get_file_entry(message.url)

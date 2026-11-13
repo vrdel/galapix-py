@@ -201,6 +201,8 @@ class SDLViewer:
             command.extend(["--selection-border-color", selection_color])
         if self._current_sort is not None:
             command.extend(["--sort", self._current_sort])
+        if options.resort_on_change:
+            command.append("--resort-on-change")
         if options.images_per_row is not None:
             command.extend(["--images-per-row", str(options.images_per_row)])
         command.extend(["--spacing", str(max(1, options.spacing))])
@@ -546,6 +548,7 @@ class SDLViewer:
             elif sym == sdl2.SDLK_1:
                 shift = bool(event.key.keysym.mod & sdl2.KMOD_SHIFT)
                 self._current_sort = "name-reverse" if shift else "name"
+                self.viewer.current_sort = self._current_sort
                 self.viewer.workspace.sort_by_name(reverse=shift)
                 self.viewer.workspace.layout_row(
                     spacing=40.0 * max(1, self.viewer.options.spacing),
@@ -556,6 +559,7 @@ class SDLViewer:
             elif sym == sdl2.SDLK_2:
                 shift = bool(event.key.keysym.mod & sdl2.KMOD_SHIFT)
                 self._current_sort = "mtime-reverse" if shift else "mtime"
+                self.viewer.current_sort = self._current_sort
                 self.viewer.workspace.sort_by_mtime(reverse=shift)
                 self.viewer.workspace.layout_row(
                     spacing=40.0 * max(1, self.viewer.options.spacing),
@@ -566,6 +570,7 @@ class SDLViewer:
             elif sym == sdl2.SDLK_3:
                 shift = bool(event.key.keysym.mod & sdl2.KMOD_SHIFT)
                 self._current_sort = "url-reverse" if shift else "url"
+                self.viewer.current_sort = self._current_sort
                 self.viewer.workspace.sort_by_url(reverse=shift, case_insensitive=self.viewer.options.case_insensitive_sort)
                 self.viewer.workspace.layout_row(
                     spacing=40.0 * max(1, self.viewer.options.spacing),

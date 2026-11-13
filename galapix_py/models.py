@@ -56,6 +56,7 @@ class ViewerOptions:
     height: int = 720
     fullscreen: bool = False
     sort: str | None = None
+    resort_on_change: bool = False
     images_per_row: int | None = None
     spacing: int = 1
     background_color: tuple[float, float, float, float] | None = None
